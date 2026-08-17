@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-08-17T11:07:36.586867",
+  "engine_config": {
+    "novel_type": "xianxia",
+    "dimension_count": 11
+  },
+  "summary": {
+    "total_chapters": 1,
+    "total_records": 3
+  },
+  "dimension_statistics": {
+    "character_names": {
+      "record_count": 2,
+      "required": true,
+      "description": "本章出现的主要人物（包括名字、称谓、道号等）"
+    },
+    "relationship_changes": {
+      "record_count": 0,
+      "required": false,
+      "description": "人物之间的关系变化（结拜、敌对、师徒、婚恋等）"
+    },
+    "cultivation_progress": {
+      "record_count": 0,
+      "required": false,
+      "description": "功法/境界突破情况"
+    },
+    "important_events": {
+      "record_count": 1,
+      "required": true,
+      "description": "推动剧情发展的重要事件"
+    },
+    "battle_scenes": {
+      "record_count": 0,
+      "required": false,
+      "description": "战斗/对决场景记录"
+    },
+    "exploration_events": {
+      "record_count": 0,
+      "required": false,
+      "description": "探索秘境、寻找宝物等事件"
+    },
+    "spiritual_items": {
+      "record_count": 0,
+      "required": false,
+      "description": "出现的法宝、丹药、灵器等"
+    },
+    "locations": {
+      "record_count": 0,
+      "required": false,
+      "description": "新出现或重要的地点场景"
+    },
+    "factions": {
+      "record_count": 0,
+      "required": false,
+      "description": "门派、宗门、家族等势力组织"
+    },
+    "foreshadowing": {
+      "record_count": 0,
+      "required": false,
+      "description": "为后续剧情埋下的伏笔或暗示"
+    },
+    "unresolved_questions": {
+      "record_count": 0,
+      "required": false,
+      "description": "本章留下的悬念或未解之谜"
+    }
+  },
+  "character_ranking": [
+    {
+      "name": "林尘",
+      "appearance_count": 1,
+      "levels": "炼气四层"
+    },
+    {
+      "name": "王霸",
+      "appearance_count": 1,
+      "levels": "炼气五层"
+    }
+  ],
+  "event_frequency": {
+    "important_events": 1,
+    "battle_scenes": 0,
+    "exploration_events": 0,
+    "cultivation_progress": 0
+  }
+}

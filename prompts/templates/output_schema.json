@@ -1,0 +1,326 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ai-novel-analyzer.io/schemas/chapter_output_v3.0.json",
+  "title": "AI Novel Analyzer - 章节结构化输出 Schema",
+  "description": "用于定义 AI Novel Analyzer 对任意长文/小说进行逐章分析后的结构化 JSON 输出格式（v3.0 精简字段命名；v3.1 取消 enum 约束，分类字段改为自由文本）",
+  "type": "object",
+  "required": ["metadata", "world_events", "locations", "characters", "scenes", "growth", "chapter_summary"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "description": "元数据信息（章节标识仅在此记录一次）",
+      "required": ["chapter_id", "chapter_title", "volume_number"],
+      "properties": {
+        "chapter_id": {
+          "type": "string",
+          "description": "章节标识符，格式：{vol_num}_text_chap_{chap_num}",
+          "pattern": "^\\d+_text_chap_\\d+$"
+        },
+        "chapter_title": {
+          "type": "string",
+          "description": "章节标题"
+        },
+        "volume_number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "当前卷号，从 prompt 中的卷号参数获取"
+        },
+        "confidence_score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "AI 分析结果的置信度评分"
+        }
+      }
+    },
+
+    "world_events": {
+      "type": "array",
+      "description": "世界观级事件列表（仅规则变更/势力变动/地图变更；个人剧情不记入；无则为空数组）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "maxLength": 20},
+          "name": {"type": "string"},
+          "time": {"type": "string"},
+          "description": {"type": "string", "maxLength": 100},
+          "impact": {"type": "string", "maxLength": 20},
+          "locations": {"type": "array", "items": {"type": "string"}},
+          "consequences": {"type": "string"}
+        }
+      }
+    },
+
+    "locations": {
+      "type": "array",
+      "description": "地点档案列表（本章涉及的所有地点）",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "地点正式名称"
+          },
+          "type": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "地点类型（自由文本，使用原文术语）"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "环境/地理/氛围描述（提示词要求≤60 字，此处为校验缓冲）"
+          },
+          "change": {
+            "type": ["string", "null"],
+            "description": "本章发生的状态变更，无变化则为 null"
+          },
+          "characters": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "在该地点活动的人物"
+          },
+          "events": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "发生在该地点的事件名称"
+          }
+        }
+      }
+    },
+
+    "characters": {
+      "type": "array",
+      "description": "人物档案更新列表（记录所有在本章有行动的角色）",
+      "items": {
+        "type": "object",
+        "required": ["name", "protagonist", "actions"],
+        "properties": {
+          "name": {"type": "string"},
+          "protagonist": {"type": "boolean", "description": "是否为主要人物"},
+          "attributes": {
+            "type": "object",
+            "description": "属性变更：{属性类型：{value, reason}}"
+          },
+          "identity": {
+            "type": "object",
+            "description": "身份变更：{身份维度：{value}}"
+          },
+          "personality": {
+            "type": "object",
+            "properties": {
+              "before": {"type": "array", "items": {"type": "string"}},
+              "after": {"type": "array", "items": {"type": "string"}},
+              "trigger": {"type": "string"}
+            }
+          },
+          "objective": {
+            "type": "object",
+            "properties": {
+              "now": {"type": "string", "description": "当前目标"},
+              "plan": {"type": "string", "description": "长期计划"}
+            }
+          },
+          "relationships": {
+            "type": "array",
+            "description": "与其他角色的关系列表",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string", "description": "关联角色名"},
+                "relation": {"type": "string", "description": "关系状态（可写'之前→之后'）"},
+                "trust": {"type": "integer", "minimum": 0, "maximum": 100},
+                "highlights": {"type": "array", "items": {"type": "string"}},
+                "pending": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          },
+          "actions": {"type": "string", "description": "本章行动概述"}
+        }
+      }
+    },
+
+    "scenes": {
+      "type": "array",
+      "description": "故事片段列表",
+      "items": {
+        "type": "object",
+        "required": ["id", "location", "characters", "events"],
+        "properties": {
+          "id": {"type": "integer"},
+          "location": {"type": "string"},
+          "characters": {"type": "array", "items": {"type": "string"}},
+          "description": {"type": "string"},
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event": {"type": "string"},
+                "significance": {"type": "string"},
+                "tone": {"type": "string", "maxLength": 20}
+              }
+            }
+          },
+          "dialogues": {"type": "array", "items": {"type": "string"}},
+          "advancement": {"type": "string", "description": "推进了哪些剧情（只叙事，不复述人物/伏笔/物品细节）"}
+        }
+      }
+    },
+
+    "growth": {
+      "type": "object",
+      "description": "主要人物成长追踪（无变化的块使用 null）",
+      "properties": {
+        "capability": {
+          "type": "object",
+          "description": "技能获得与能力突破（物品/装备变化统一记录在 items）",
+          "properties": {
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "method": {"type": "string"}
+                }
+              }
+            },
+            "breakthroughs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {"type": "string"},
+                  "before": {"type": "string"},
+                  "after": {"type": "string"},
+                  "catalyst": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "mental": {
+          "type": "object",
+          "description": "心智演变（重要选择与价值观重塑，无变化则 null）",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "choice": {"type": "string"},
+                  "decision": {"type": "string"},
+                  "impact": {"type": "string"}
+                }
+              }
+            },
+            "values": {"type": ["string", "null"]}
+          }
+        },
+        "social": {
+          "type": ["string", "null"],
+          "description": "主角社交圈变化概述（人物关系细节记入 characters），无则 null"
+        },
+        "emotional": {
+          "type": "object",
+          "description": "情感历程（无变化则 null）",
+          "properties": {
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "event": {"type": "string"},
+                  "emotion": {"type": "string"},
+                  "intensity": {"type": "integer", "minimum": 0, "maximum": 10},
+                  "characters": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            },
+            "conflicts": {"type": ["string", "null"]}
+          }
+        },
+        "summary": {"type": ["string", "null"], "description": "本章人物成长综合总结，无明显成长则 null"}
+      }
+    },
+
+    "items": {
+      "type": "array",
+      "description": "物品图鉴（可选）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "category": {"type": "string", "maxLength": 20},
+          "rarity": {"type": ["string", "null"]},
+          "owner": {"type": "string", "description": "当前所有者"},
+          "changes": {"type": "array", "items": {"type": "string"}, "description": "本章状态变化（获得/强化/损失/损坏/升级）"},
+          "role": {"type": "string", "description": "在故事中的作用"},
+          "properties": {"type": "string", "description": "详细属性和效果"}
+        }
+      }
+    },
+
+    "plot_secrets": {
+      "type": "object",
+      "description": "剧情秘密：反转、秘密揭露、伏笔线索",
+      "properties": {
+        "twists": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "description": {"type": "string"},
+              "truth": {"type": "string"},
+              "misdirection": {"type": "string"}
+            }
+          }
+        },
+        "revelations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {"type": "string"},
+              "knowers": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "clues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "description": {"type": "string"},
+              "resolution": {"type": "string", "description": "潜在解答方向"},
+              "urgency": {"type": "string", "maxLength": 20},
+              "characters": {"type": "array", "items": {"type": "string"}},
+              "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+            }
+          }
+        }
+      }
+    },
+
+    "chapter_summary": {
+      "type": "object",
+      "description": "章节总结（用于后续阅读/回顾）",
+      "required": ["brief_summary"],
+      "properties": {
+        "brief_summary": {"type": "string", "maxLength": 200},
+        "key_points": {"type": "array", "items": {"type": "string"}},
+        "style_notes": {
+          "type": ["object", "null"],
+          "description": "文风笔记，无显著特色时为 null",
+          "properties": {
+            "dialogue_patterns": {"type": "string"},
+            "description_density": {"type": "string"},
+            "pacing_preference": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

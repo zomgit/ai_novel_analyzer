@@ -1,0 +1,36 @@
+# AI Novel Analyzer v2.0 - Python Dependencies
+# =============================================
+# Last Updated: 2026-08-16
+# Python Version: >=3.12
+#
+# ⚠️ 重要说明：
+# 本项目使用 uv 作为包管理器（推荐）。requirements.txt 仅为 pip 用户提供兼容。
+# SiliconFlow 没有官方 Python SDK，通过标准库 requests 调用其 OpenAI 兼容 API。
+#
+# Installation Instructions:
+# --------------------------
+# Option 1: Using uv (recommended)
+#   uv sync                          # 安装所有核心依赖 + dev 组
+#
+# Option 2: Using pip
+#   pip install -r requirements.txt
+
+# Core Production Dependencies
+# ============================
+requests>=2.34.2                      # OpenAI 兼容 API 调用（HTTP 客户端）
+pyyaml>=6.0.3                         # YAML 配置文件解析
+python-dotenv>=1.0.0                  # .env 环境变量管理
+jsonschema>=4.17.0                    # JSON Schema 输出验证
+pydantic>=2.10.0                      # 数据模型验证与设置管理
+chromadb>=0.4.18                      # 本地向量数据库（无需 GPU）
+tqdm>=4.65.0                          # 批处理进度条
+tiktoken>=0.6.0                       # Token 计数工具（长文本分片）
+
+# Development Dependencies (可选，用于开发测试)
+# =============================================
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# black>=23.12.0
+# isort>=5.13.0
+# flake8>=7.0.0
+# mypy>=1.8.0

@@ -1,0 +1,148 @@
+# AI Novel Analyzer - 默认配置文件
+# 此文件包含所有必需的配置项，用户可以在 production.yaml 中覆盖
+
+# ========== I/O 路径配置 ==========
+io:
+  # 输入目录：存放原始小说文本文件
+  input_dir: "user_data/novel_raw"
+  
+  # 输出目录：存放切分 +AI 分析的结果
+  output_dir: "user_data/novel_data"
+  
+  # 子目录结构（自动创建）
+  # - raw/          : 原始分割的小说章节
+  # - processed/    : AI 分析后的 JSON 文件
+  # - summaries/    : 章节摘要（上下文使用）
+
+# ========== 数据库配置 ==========
+db:
+  # 数据库存放目录
+  path: "user_data/database"
+  
+  # SQLite 数据库文件
+  sqlite_db: "novel_analyzer.db"
+  
+  # ChromaDB 向量存储
+  chromadb_dir: "chromadb"
+
+# ========== 处理配置 ==========
+processing:
+  # Chapter processing
+  max_workers: 4                    # Parallel processing threads
+  retry_on_failure: true            # Auto-retry on errors
+  continue_on_error: true           # Continue batch if chapter fails
+  
+  # Chapter retry configuration (range 1-5)
+  chapter_retry_attempts: 3         # Max retry attempts for JSON parsing failure (1-5, defaults to 3)
+  skip_chapter_on_max_retries: true # If true: skip failed chapter and continue; if false: stop entire batch
+  
+  # Token management
+  max_tokens_per_chapter: 8192      # Maximum tokens in input
+  token_margin: 0.1                 # Safety margin (10%)
+  
+  # JSON validation
+  strict_validation: true           # Enforce schema compliance
+  allow_partial_results: false      # Accept incomplete results
+
+# ========== AI API 配置 ==========
+ai_api:
+  # 提供者选项：siliconflow | openai | local | azure
+  provider: "siliconflow"
+  
+  # API 基础 URL（根据提供者调整）
+  base_url: "https://api.siliconflow.cn/v1"
+  
+  # API Key（推荐通过环境变量或 production.yaml 设置）
+  # api_key: "sk-xxx"  # 不推荐直接写在这里
+  
+  # 模型设置
+  model: "deepseek-v4"
+  
+  # Token 控制
+  max_tokens: 8192            # AI 生成的最大 Token 数
+  temperature: 0.7            # 生成温度（0-2 之间）
+  
+  # 流式调用参数
+  stream: true                # 是否启用 SSE 流式响应
+
+# ========== 日志配置 ==========
+logging:
+  # 日志级别：DEBUG | INFO | WARNING | ERROR | CRITICAL
+  level: "INFO"
+  
+  # 日志目录
+  log_dir: "logs"
+  
+  # 日志轮转配置
+  max_bytes: 10485760         # 10MB
+  backup_count: 5             # 保留 5 个备份文件
+  
+  # 格式配置
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# ========== 维度配置（声明式设计） ==========
+dimensions:
+  # 维度配置文件路径（支持多套预设）
+  config_path: "config/dimensions/xianxia.yaml"
+  
+  # 可选预设：xianxia.yaml | urban.yaml | scifi.yaml | fantasy.yaml
+  
+  # Prompt 自动生成（基于维度配置）
+  auto_generate_prompt: true
+  
+  # 批量处理性能调优
+  batch_size: 10              # 每次 API 调用的章节数
+  parallel_workers: 4         # 并行 worker 数量（CPU 核心数自适应）
+
+# ========== ChromaDB 向量存储配置 ==========
+vector_store:
+  # 存储路径（相对于项目根目录）
+  path: "user_data/database/chromadb"
+  
+  # 集合名称
+  collection_name: "novel_chunks"
+  
+  # 嵌入模型（向量化）
+  embedding_model: "BAAI/bge-m3"
+  dimensions: 1024
+  
+  # 批处理参数
+  embed_batch_size: 10
+  rate_limit: 100             # 每分钟请求数限制
+  
+# Logging configuration
+logging:
+  level: "INFO"                     # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  file:
+    enabled: true
+    path: "./logs/batch_processing.log"
+    max_size_mb: 10
+    backup_count: 5
+  
+  console:
+    enabled: true
+    
+# ========== 进度追踪 ==========
+progress:
+  show_progress_bar: true           # Visual progress indicator
+  log_interval: 1                   # Log every N chapters
+  save_intermediate: true           # Save partial results
+  
+# ========== 性能调优 ==========
+performance:
+  memory_limit_mb: 2048             # Max RAM usage
+  disk_buffer_enabled: true         # Use disk for large buffers
+  async_io: true                    # Use async I/O operations
+
+# ========== 扩展功能 ==========
+extensions:
+  enable_custom_processors: false   # Allow custom processing modules
+  custom_plugin_dirs: []            # Additional plugin directories
+
+# Development settings
+development:
+  verbose_output: false             # Detailed processing output
+  mock_api_responses: false         # Use mock responses for testing
+  test_mode: false                  # Run in test mode

@@ -1,0 +1,144 @@
+"""章节分割器自测脚本
+
+用法:
+    python scripts/test_chapter_split.py
+
+内置多组测试样例，验证标题识别、中文数字解析和兜底切分。
+也可指定自己的文件测试:
+    python scripts/test_chapter_split.py your_novel.txt
+"""
+
+import io
+import sys
+from pathlib import Path
+
+# Windows 控制台编码兼容处理
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from ai_novel_analyzer.utils.chapter_splitter import (
+    ChapterSplitter,
+    chinese_numeral_to_int,
+)
+
+SAMPLE = """《测试小说》
+
+简介：这是一本用于测试的小说。
+
+第一章 觉醒
+林凡从昏迷中醒来，发现自己身处陌生的山洞。
+他回忆起昏迷前的战斗，心中充满疑惑。
+
+第二章 神秘老者
+一位白发老者出现在林凡面前。
+"年轻人，你终于醒了。"老者说道。
+
+第十章 重逢
+数字标题测试：第十章应当被正确解析为 10。
+
+第一百二十三章 大战
+中文大数字标题测试。
+
+终章 一切结束
+故事在这里画上了句号。
+"""
+
+NO_TITLE_SAMPLE = ("这是一段没有任何章节标题的长文本。" * 500)
+
+VOLUME_SAMPLE = """《分卷测试小说》
+
+第一卷 起源
+
+第一章 重生
+主角重生了。
+
+第二章 觉醒
+主角觉醒了金手指。
+
+第二卷 崛起
+
+第一章 初入宗门
+章节编号在卷内重新开始。
+
+第二章 小试身手
+主角初显实力。
+"""
+
+
+def show_result(label, chapters):
+    print(f"\n--- {label} ---")
+    print(f"分割出 {len(chapters)} 章:")
+    for ch in chapters:
+        tag = " [兜底]" if ch.is_fallback else ""
+        print(f"  {ch.index:>3}. {ch.title}{tag}  ({ch.char_count} 字符)")
+
+
+def main():
+    passed = 0
+    failed = 0
+
+    def check(cond, msg):
+        nonlocal passed, failed
+        if cond:
+            passed += 1
+            print(f"[通过] {msg}")
+        else:
+            failed += 1
+            print(f"[失败] {msg}")
+
+    # 1. 中文数字解析
+    print("== 1. 中文数字解析 ==")
+    cases = {"一": 1, "十": 10, "十二": 12, "二十": 20, "一百二十三": 123,
+             "九百九十九": 999, "三千零一": 3001, "一万": 10000, "两万五千": 25000}
+    for cn, expect in cases.items():
+        got = chinese_numeral_to_int(cn)
+        check(got == expect, f"'{cn}' -> {got} (期望 {expect})")
+
+    # 2. 标题模式切分
+    print("\n== 2. 标题模式切分 ==")
+    splitter = ChapterSplitter()
+    chapters = splitter.split_text(SAMPLE)
+    show_result("样例小说", chapters)
+    check(len(chapters) == 5, f"应识别出 5 章，实际 {len(chapters)}")
+    titles = [ch.title for ch in chapters]
+    check(any("第10章" in t for t in titles), "'第十章' 应转换为 '第10章'")
+    check(any("第123章" in t for t in titles), "'第一百二十三章' 应转换为 '第123章'")
+
+    # 3. 分卷识别
+    print("\n== 3. 分卷识别 ==")
+    vol_chapters = splitter.split_text(VOLUME_SAMPLE)
+    show_result("分卷样例小说", vol_chapters)
+    check(len(vol_chapters) == 4, f"应识别出 4 章（卷标题行不算章节），实际 {len(vol_chapters)}")
+    check(all(ch.volume_number == 1 for ch in vol_chapters[:2]), "前两章应属于卷1")
+    check(all(ch.volume_number == 2 for ch in vol_chapters[2:]), "后两章应属于卷2")
+    check(vol_chapters[0].volume_title == "起源", f"卷1卷名应为'起源'，实际 {vol_chapters[0].volume_title!r}")
+    check(not any("卷" in ch.title for ch in vol_chapters), "卷标题行不应作为章节输出")
+
+    # 4. 兜底切分（无章节标题）
+    print("\n== 4. 兜底切分（无章节标题）==")
+    fallback = splitter.split_text(NO_TITLE_SAMPLE)
+    show_result("无标题文本 (目标3000字符/段)", fallback)
+    check(len(fallback) >= 2, f"应兜底切分为多段，实际 {len(fallback)}")
+    check(all(ch.is_fallback for ch in fallback), "兜底段落应标记 is_fallback")
+
+    # 5. 用户自定义文件
+    if len(sys.argv) > 1:
+        path = Path(sys.argv[1])
+        print(f"\n== 5. 实测文件: {path} ==")
+        user_chapters = splitter.split_file(path)
+        show_result(str(path.name), user_chapters[:20])
+        if len(user_chapters) > 20:
+            print(f"  ... 还有 {len(user_chapters) - 20} 章未显示")
+
+    print()
+    print("=" * 40)
+    print(f"测试完成: {passed} 通过, {failed} 失败")
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == '__main__':
+    main()

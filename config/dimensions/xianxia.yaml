@@ -1,0 +1,87 @@
+# Xianxia (仙侠) Novel Analysis Dimensions
+title: "仙侠小说分析维度"
+novel_type: "xianxia"
+version: "1.0"
+
+dimensions:
+  # === 人物相关 ===
+  - name: "主要人物"
+    key: "character_names"
+    description: "本章出现的主要人物（包括名字、称谓、道号等）"
+    target_type: "entity"
+    extraction_fields: ["name", "cultivation_level", "identity", "appearance_description"]
+    is_required: true
+  
+  - name: "人物关系变化"
+    key: "relationship_changes"
+    description: "人物之间的关系变化（结拜、敌对、师徒、婚恋等）"
+    target_type: "relation"
+    extraction_fields: ["person_a", "person_b", "relation_type", "change_description", "reason"]
+    is_required: false
+  
+  - name: "功法修炼"
+    key: "cultivation_progress"
+    description: "功法/境界突破情况"
+    target_type: "event"
+    extraction_fields: ["character", "old_level", "new_level", "technique_name", "success"]
+    is_required: false
+  
+  # === 事件相关 ===
+  - name: "重要事件"
+    key: "important_events"
+    description: "推动剧情发展的重要事件"
+    target_type: "event"
+    extraction_fields: ["event_name", "participants", "location", "consequence", "significance"]
+    is_required: true
+  
+  - name: "战斗场景"
+    key: "battle_scenes"
+    description: "战斗/对决场景记录"
+    target_type: "event"
+    extraction_fields: ["combatants", "techniques_used", "outcome", "damage_assessment"]
+    is_required: false
+  
+  - name: "探险寻宝"
+    key: "exploration_events"
+    description: "探索秘境、寻找宝物等事件"
+    target_type: "event"
+    extraction_fields: ["location", "objective", "challenges", "outcome"]
+    is_required: false
+  
+  # === 物品相关 ===
+  - name: "灵物丹药"
+    key: "spiritual_items"
+    description: "出现的法宝、丹药、灵器等"
+    target_type: "item"
+    extraction_fields: ["item_name", "level", "effect", "owner", "origin"]
+    is_required: false
+  
+  # === 世界观 ===
+  - name: "地点场景"
+    key: "locations"
+    description: "新出现或重要的地点场景"
+    target_type: "entity"
+    extraction_fields: ["location_name", "location_type", "description", "significance"]
+    is_required: false
+  
+  - name: "势力组织"
+    key: "factions"
+    description: "门派、宗门、家族等势力组织"
+    target_type: "entity"
+    extraction_fields: ["faction_name", "faction_type", "leader", "stance", "power_level"]
+    is_required: false
+  
+  # === 伏笔与悬念 ===
+  - name: "伏笔暗示"
+    key: "foreshadowing"
+    description: "为后续剧情埋下的伏笔或暗示"
+    target_type: "event"
+    extraction_fields: ["hint_content", "potential_impact", "clues"]
+    is_required: false
+  
+  - name: "悬念疑问"
+    key: "unresolved_questions"
+    description: "本章留下的悬念或未解之谜"
+    target_type: "event"
+    extraction_fields: ["question_content", "related_characters", "possible_explanations"]
+    is_required: false

@@ -1,0 +1,111 @@
+[project]
+name = "novel-structure-analyzer"
+version = "2.0.0"
+description = "Novel Structure Analyzer - Professional Text Deep Analysis & Continuation Preparation Platform"
+readme = "README.md"
+license = {text = "MIT License"}
+requires-python = ">=3.12"
+authors = [
+    { name = "AI Novel Analyzer Team", email = "support@example.com" }
+]
+keywords = [
+    "novel-analysis",
+    "text-structure",
+    "story-analytics",
+    "knowledge-graph",
+    "vector-search",
+    "llm",
+    "nlp",
+    "automation"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # Core API Client (OpenAI-compatible)
+    "requests>=2.34.2",
+    # Configuration Management
+    "pyyaml>=6.0.3",
+    "python-dotenv>=1.0.0",
+    # Data Validation & Schema
+    "jsonschema>=4.17.0",
+    "pydantic>=2.10.0",
+    # Vector Storage (ChromaDB - local)
+    "chromadb>=0.4.18",
+    # Progress Bar & TUI
+    "tqdm>=4.65.0",
+    # Optional Tokenizer (if needed for long text handling)
+    "tiktoken>=0.6.0",
+]
+
+[dependency-groups]
+# 开发依赖（uv sync 时可用 --group dev 安装）
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "isort>=5.13.0",
+    "flake8>=7.0.0",
+    "mypy>=1.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-repo/ai-novel-analyzer"
+Documentation = "https://github.com/your-repo/ai-novel-analyzer/docs"
+Repository = "https://github.com/your-repo/ai-novel-analyzer.git"
+Issues = "https://github.com/your-repo/ai-novel-analyzer/issues"
+
+[project.scripts]
+# CLI command for batch processing
+analyzer = "ai_novel_analyzer:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=src/ai_novel_analyzer --cov-report=term-missing"
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = "ai_novel_analyzer"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

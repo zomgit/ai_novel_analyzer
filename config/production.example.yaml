@@ -1,0 +1,464 @@
+# AI Novel Analyzer - 完整配置文件模板
+
+## 📋 使用说明
+
+这是**所有配置项的统一入口**。复制此文件到 `config/production.yaml`，然后根据您的需求修改对应字段。
+
+**重要提示**: 
+- ❌ 不要提交 `production.yaml` 到版本控制系统（已在 `.gitignore` 中）
+- ✅ 使用 `.env` 文件管理敏感信息（API Key 等）
+- ✅ 参考此文件中的详细注释选择适合的值
+
+---
+
+# ==================== 1. 基础环境配置 ====================
+
+# 项目基础信息
+general:
+  project_name: "AI Novel Analyzer"       # 项目名称（用于日志和标识）
+  version: "2.0"                           # 版本号
+  environment: "production"                # [可选值] development | staging | production
+  debug_mode: false                        # [推荐] true 开启详细调试日志，false 生产环境用
+
+
+# 工作目录设置（重要！）
+workspace:
+  root_dir: "."                            # 项目根目录路径
+  data_dir: "./data"                       # 数据存储主目录
+    # 🔍 含义：所有数据文件的根目录
+  
+  input_dir: "./data/raw"                  # 原始文本输入目录
+    # 🔍 含义：放置待处理的章节 txt/md 文件
+    # ✅ 格式要求：文件名应为 vol_X_chap_Y.txt 或 volume_X_chapter_Y.txt
+  
+  output_dir: "./data/processed"           # JSON 输出目录
+    # 🔍 含义：处理后的结构化分析结果存储位置
+  
+  vector_db_dir: "./db/vector_store"       # ChromaDB 向量库目录
+    # 🔍 含义：向量数据库本地持久化存储位置
+    # ✅ 确保磁盘有足够空间（建议至少 5GB）
+  
+  sqlite_db_dir: "./db/sqlite"             # SQLite 结构化数据库目录（预留）
+    # 🔍 含义：关系型数据存储（Phase 2 功能）
+  
+  log_dir: "./logs"                        # 日志文件目录
+    # 🔍 含义：批处理日志、错误日志、性能监控日志
+
+
+# ==================== 2. AI Model API 配置 ====================
+
+ai_model:
+  # 【核心配置】选择您的 AI Provider 类型
+  type: "openai_compatible"                 # [必选] 支持的选项：
+                                              #   • openai_compatible (OpenAI 兼容 API)
+                                              #   • ollama (Ollama 本地服务)
+                                              #   
+                                              # 🎯 推荐：追求性价比 → siliconflow
+                                              #        完全离线 → ollama
+  
+  # 如果选择 openai_compatible，需要以下参数：
+  params:
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 📢 重要：建议使用环境变量，不要直接写在这里！
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # 【敏感信息】API Key
+    api_key: "${AI_MODEL_API_KEY}"           # [必选] AI API 密钥
+    
+    # 🔍 如何获取 ${AI_MODEL_API_KEY} 环境变量：
+    # Windows PowerShell:
+    #   $env:AI_MODEL_API_KEY = "你的-api-key"
+    # Linux/Mac:
+    #   export AI_MODEL_API_KEY="你的-api-key"
+    # 
+    # 或者在 .env 文件中定义（需配合 python-dotenv 加载）
+    
+    # 【核心配置】Base URL（根据 provider 选择）
+    base_url: "https://api.siliconflow.cn/v1"  # [必选] API 端点地址
+                                             # 
+                                             # 🎯 各种 Provider 的推荐配置：
+                                             # 
+                                             # SiliconFlow (免费额度可用):
+                                             #   base_url: "https://api.siliconflow.cn/v1"
+                                             #   model: "Qwen/Qwen2.5-72B-Instruct"
+                                             #   api_key: sf-xxxxx
+                                             # 
+                                             # OpenAI Official:
+                                             #   base_url: "https://api.openai.com/v1"
+                                             #   model: "gpt-4o"
+                                             #   api_key: sk-xxxxx
+                                             # 
+                                             # TogetherAI:
+                                             #   base_url: "https://api.together.xyz/v1"
+                                             #   model: "mistralai/Mixtral-8x7B-Instruct-v0.1"
+                                             #   api_key: tog-xxxxx
+                                             # 
+                                             # Groq (极速推理):
+                                             #   base_url: "https://api.groq.com/openai/v1"
+                                             #   model: "llama3-70b-8192"
+                                             #   api_key: gpk-xxxxx
+                                             # 
+                                             # LM Studio (本地服务器):
+                                             #   base_url: "http://localhost:1234/v1"
+                                             #   model: "any-local-model"
+                                             #   api_key: "not-needed"
+    
+    # 【核心配置】模型名称
+    model: "Qwen/Qwen2.5-72B-Instruct"       # [必选] 使用的具体模型
+                                            #
+                                            # 🎯 推荐模型选择：
+                                            # 中文质量最佳: Qwen/Qwen2.5-72B-Instruct (SiliconFlow)
+                                            # 通用能力最强: gpt-4o (OpenAI)
+                                            # 速度最快：llama3-70b-8192 (Groq)
+                                            # 免费试用：DeepSeek-V3 (SiliconFlow)
+                                            # 本地运行：llama3.2, qwen2.5:7b
+    
+    # 🎛️ 生成参数调优
+    temperature: 0.0                         # [可选] 生成随机性 (0.0-1.0)
+                                             # 
+                                             # 🔍 含义：控制输出的创造性程度
+                                             #   • 0.0: 最确定（推荐用于结构化输出）
+                                             #   • 0.3-0.5: 适度创造性（平衡质量和多样性）
+                                             #   • 0.7-0.9: 高度创造性（更适合创意写作）
+                                             #
+                                             # ✅ 本项目推荐使用 0.0（JSON 输出需要确定性）
+    
+    max_tokens: 8192                         # [必选] 最大生成 token 数
+                                             # 
+                                             # 🔍 含义：单次响应允许的最大输出长度
+                                             # 
+                                             # 🎯 推荐值：
+                                             #   • 简单任务：4096
+                                             #   • 完整七维分析：8192 (推荐)
+                                             #   • 超长原文 + 复杂结构：16384
+    
+    timeout: 120                             # [可选] API 请求超时时间（秒）
+                                             # 
+                                             # 🔍 含义：网络超时阈值
+                                             # 
+                                             # 🎯 建议值：
+                                             #   • 正常网络：60-120 秒
+                                             #   • 慢速网络：180-300 秒
+                                             #   • 本地服务：10-30 秒
+
+
+  # 如果选择 Ollama（完全离线），配置如下：
+  # params:
+  #   host: "http://localhost:11434"         # [必选] Ollama 服务器地址
+  #   model: "llama3.2"                      # [必选] 拉取的模型名称
+  #   temperature: 0.0                       # [可选] 生成温度（默认 0.0）
+  #   num_predict: -1                        # [可选] 最大预测 token 数（-1=无限制）
+
+
+  # 系统级 Prompt（可选）
+  system_prompt_prefix: "你是一个专业的文学分析师和数据提取专家。"  # [可选] 添加到每个消息前的系统提示
+  
+  # 重试策略（重要！防错机制）
+  retry_on_failure: true                   # [推荐] 失败是否自动重试
+  retry_attempts: 3                        # [可选] 最大重试次数（1-5 次）
+  retry_backoff: exponential               # [可选] backoff 策略：exponential|linear|none
+  
+  # 流式输出支持（可选）
+  stream_output: false                     # [可选] true 启用流式输出（实时显示进度）
+
+
+# ==================== 3. Embedding Vector Store 配置 ====================
+
+embedding:
+  # 【核心配置】选择嵌入 Provider
+  type: "siliconflow"                      # [必选] 支持的选项：
+                                           #   • siliconflow (硅基流动，完全免费🆓)
+                                           #   • local (本地模型，需要 GPU)
+                                           #   • azure (Azure OpenAI)
+                                           # 
+                                           # 🎯 强烈推荐：siliconflow（零成本 + 高性能）
+  
+  params:
+    # 【敏感信息】Embedding API Key
+    api_key: "${SILICONFLOW_API_KEY}"      # [必选] 向量化 API 密钥
+    
+    # 注意：虽然本方案使用云端 API，但向量数据存储在本地
+    # 因此实现了"计算云端化 + 存储本地化"的最佳组合
+    
+    # 【核心配置】Embedding 模型
+    model_name: "BAAI/bge-m3"              # [必选] 嵌入模型名称
+                                          #
+                                          # 🎯 SiliconFlow 推荐的嵌入模型：
+                                          # • BAAI/bge-m3 ⭐ 最佳平衡（1024 维，中文优化）
+                                          # • BAAI/bge-large-zh-v1.5 (768 维)
+                                          # • text-embedding-3-large (OpenAI)
+                                          #
+                                          # ✅ 本项目推荐使用：BAAI/bge-m3
+    
+    dimensions: 1024                       # [可选] 向量维度（通常与模型匹配即可）
+                                          # 不需要手动设置，默认会自动适配
+    
+    # Batch 批量处理配置
+    batch_size: 10                         # [可选] 每次 API 调用发送的 chunk 数量
+                                          # 🎯 推荐值：5-20（根据网络状况调整）
+    
+    rate_limit: 100                        # [可选] 每秒最大请求数（防限流）
+                                          # 🎯 SiliconFlow 免费版建议 ≤ 100/min
+
+
+# ==================== 4. 批量处理流程配置 ====================
+
+processing:
+  # 并发控制（影响处理速度和资源占用）
+  max_workers: 4                          # [必选] 并行线程数
+                                         # 
+                                         # 🎯 推荐配置：
+                                         # • 低配机器 (8GB RAM): 1-2 workers
+                                         # • 标准机器 (16GB RAM): 4 workers (推荐)
+                                         # • 高配机器 (32GB+ RAM): 8 workers
+                                         #
+                                         # ⚠️ 警告：过多 worker 可能导致内存不足！
+  
+  # 错误恢复策略（重要！保证批量任务稳定性）
+  continue_on_error: true                 # [推荐] 单章失败时是否继续后续章节
+  auto_retry_failed: true                 # [推荐] 自动重试失败的章节
+  save_partial_results: true              # [推荐] 即使部分错误也保存成功章节
+  
+  # Token 管理（防止超出上下文限制）
+  max_tokens_per_chapter: 8192            # [必选] 每章输入 token 上限
+  token_margin: 0.1                       # [可选] 安全余量比例（10%）
+  truncate_strategy: "recent_first"       # [可选] truncation 策略：recent_first | balanced
+  
+  # JSON 验证（确保输出质量）
+  strict_json_validation: true            # [推荐] 严格验证 JSON Schema
+  allow_partial_output: false             # [可选] 允许不完整的输出（仅调试用）
+  
+  # 上下文链维护（保证剧情连贯性）
+  context_window_size: 5                  # [必选] 保留前 N 章作为上下文摘要
+  enable_context_chain: true              # [推荐] 启用章节间上下文传递
+
+
+# ==================== 5. 存储架构配置 ====================
+
+storage:
+  # JSON 文件存储
+  json:
+    enabled: true                         # [必须] true/false
+    pretty_print: true                    # [推荐] JSON 缩进格式化
+    indent: 2                             # [可选] 缩进空格数
+    add_timestamps: true                  # [推荐] 为每个文件添加时间戳
+    
+    # 分卷组织（适合大型小说）
+    organize_by_volume: true              # [可选] true 在每个卷下创建子目录
+    # 效果：data/processed/vol_01/vol_1_chap_01.json
+    
+  # ChromaDB 向量存储
+  vector_db:
+    enabled: true                         # [推荐] 启用向量搜索功能
+    persist_directory: "./db/vector_store"  # [必须] ChromaDB 存储路径
+    
+    collection_config:
+      name: "novel_analysis_v2"           # [可选] 集合名称
+      metadata:
+        description: "Novel structural analysis vectors"
+        created_at: "${TIMESTAMP}"        # 自动填充当前时间
+      
+    indexing:
+      metric: "cosine"                    # [必选] 相似度度量：cosine|euclidean|ip
+                                          # 🎯 推荐：cosine（中文语义匹配最佳）
+      
+      ef_construction: 200                # [可选] HNSW 索引构建参数
+      m: 16                               # [可选] HNSW 索引 M 参数
+  
+  # SQLite 结构化存储（Phase 2 功能，预留）
+  sqlite_db:
+    enabled: false                        # [可选] Phase 2 启用
+    database_path: "./db/sqlite/novel.db"
+    
+    tables:
+      characters: true                    # 人物表
+      events: true                        # 事件表
+      items: true                         # 物品表
+      locations: true                     # 地点表
+  
+  # 索引文件自动生成
+  indexes:
+    chapter_index: true                   # [推荐] 章节总览索引
+    character_index: true                 # [推荐] 人物关系索引
+    item_index: true                      # [推荐] 物品图鉴索引
+    event_timeline: true                  # [推荐] 时间线索引
+
+
+# ==================== 6. 日志系统配置 ====================
+
+logging:
+  level: "INFO"                          # [必选] 日志级别：DEBUG|INFO|WARNING|ERROR|CRITICAL
+                                         # 
+                                         # 🔍 各级别说明：
+                                         # • DEBUG: 详细诊断信息（调试阶段用）
+                                         # • INFO: 正常运行状态（生产环境推荐）
+                                         # • WARNING: 潜在问题提醒
+                                         # • ERROR: 严重错误
+  
+  file_logging:
+    enabled: true                         # [推荐] 写入日志文件
+    path: "./logs/batch_processing.log"   # [必须] 日志文件路径
+    max_size_mb: 50                       # [可选] 单文件最大大小（MB）
+    backup_count: 5                       # [可选] 保留的历史日志数量
+    
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                                          # [可选] 日志格式字符串
+                                          # 常用占位符：
+                                          # • %(asctime)s: 时间戳
+                                          # • %(name)s: 模块名
+                                          # • %(levelname)s: 日志级别
+                                          # • %(message)s: 消息内容
+  
+  console_logging:
+    enabled: true                         # [推荐] 控制台输出
+    use_color: true                       # [可选] 彩色输出（终端支持时）
+    show_thread_ids: false                # [可选] 显示线程 ID
+  
+  # Progress 进度条
+  progress_bar:
+    enabled: true                         # [推荐] 显示处理进度条
+    min_interval: 1                       # [可选] 最小更新间隔（章）
+    refresh_rate: 0.5                     # [可选] 刷新频率（次/秒）
+  
+
+
+# ==================== 7. 性能调优配置 ====================
+
+performance:
+  # 内存管理
+  memory_limit_mb: 2048                   # [可选] 最大内存限制（MB）
+  enable_memory_monitoring: true          # [推荐] 启用内存监控
+  auto_gc_on_high_usage: true             # [推荐] 高内存时自动 GC
+  
+  # 磁盘 I/O
+  disk_buffer_enabled: true               # [推荐] 使用磁盘缓冲大对象
+  buffer_size_mb: 64                      # [可选] 磁盘缓冲区大小
+  async_io: true                          # [推荐] 异步 I/O 操作
+  
+  # 缓存策略
+  cache_enabled: true                     # [推荐] 启用缓存
+  cache_dir: "./.cache"                   # [可选] 缓存目录
+  cache_ttl_hours: 24                     # [可选] 缓存有效期（小时）
+  
+  # 网络优化
+  connection_pool_size: 10                # [可选] HTTP 连接池大小
+  request_timeout: 120                    # [必选] 网络请求超时（秒）
+
+
+# ==================== 8. 扩展插件配置 ====================
+
+plugins:
+  # 自定义处理器
+  custom_processors:
+    enabled: false                        # [可选] 启用自定义处理器
+    plugin_dirs: ["./custom_processors"]  # [可选] 插件目录列表
+  
+  # 回调钩子
+  hooks:
+    on_chapter_start: null                # [可选] 单章处理前触发函数
+    on_chapter_complete: null             # [可选] 单章完成后触发
+    on_batch_complete: null               # [可选] 批量完成触发
+    on_error: null                        # [可选] 错误发生触发
+
+
+# ==================== 9. 开发测试配置 ====================
+
+development:
+  mock_api_responses: false               # [可选] true 使用模拟响应（无需真实 API）
+  test_mode: false                        # [可选] true 启用测试模式
+  verbose_output: false                   # [可选] 详细输出模式
+  profiling: false                        # [可选] 启用性能分析
+  
+  # 单元测试相关
+  unit_tests:
+    coverage_target: 80                   # [可选] 目标覆盖率百分比
+    run_before_commit: true               # [推荐] commit 前自动运行测试
+
+
+# ==================== 10. 环境变量参考清单 ====================
+
+# 本配置文件中使用了以下环境变量占位符，请确保它们已正确设置：
+
+# Environment Variables to Set:
+# ----------------------------
+# 
+# 1. AI_MODEL_API_KEY
+#    用途：AI Model API 认证密钥
+#    获取途径：根据你的 Provider 申请（见下方指南）
+#    示例：sk-xxxxxxxxxxxxxxxxxxxxxxxxxxx
+#
+# 2. SILICONFLOW_API_KEY
+#    用途：SiliconFlow 向量化 API 密钥（完全免费）
+#    获取途径：https://cloud.siliconflow.cn/account/overview
+#    示例：sf-xxxxxxxxxxxxxxxxxxxxxxxxxxx
+#
+# 3. (可选) DATABASE_URL
+#    用途：SQLite 数据库连接串（如果启用）
+#    示例：sqlite:///./db/sqlite/novel.db
+
+
+# ==================== 快速配置指南 ====================
+
+# 🎯 场景 A: 性价比最高（推荐新手）
+# ------------------------------------
+general.environment: "production"
+ai_model.type: "openai_compatible"
+ai_model.params.base_url: "https://api.siliconflow.cn/v1"
+ai_model.params.model: "Qwen/Qwen2.5-72B-Instruct"
+embedding.type: "siliconflow"
+embedding.params.model_name: "BAAI/bge-m3"
+processing.max_workers: 4
+
+# 需要设置的环境变量：
+# export AI_MODEL_API_KEY="your-siliconflow-ai-key"
+# export SILICONFLOW_API_KEY="your-siliconflow-embedding-key"
+
+
+# 🎯 场景 B: 完全离线运行
+# ------------------------------------
+general.environment: "production"
+ai_model.type: "ollama"
+ai_model.params.host: "http://localhost:11434"
+ai_model.params.model: "llama3.2"
+embedding.type: "local"  # 需要本地 GPU 支持
+processing.max_workers: 1  # 降低并发避免 CPU 过载
+
+# 需要设置：无（本地安全环境）
+
+
+# 🎯 场景 C: 极速测试迭代
+# ------------------------------------
+general.debug_mode: true
+ai_model.type: "openai_compatible"
+ai_model.params.base_url: "https://api.groq.com/openai/v1"
+ai_model.params.model: "llama3-70b-8192"
+processing.max_workers: 2
+logging.level: "DEBUG"
+
+# 需要设置的环境变量：
+# export AI_MODEL_API_KEY="your-groq-api-key"
+
+
+# ==================== 故障排查提示 ====================
+
+# 如果遇到配置问题，请检查以下常见错误：
+
+# 1. "API key not found"
+# 解决：确认环境变量已设置，且文件名格式正确 (.env 或 shell export)
+
+# 2. "Connection refused"
+# 解决：检查 base_url 是否正确，服务器是否正在运行
+
+# 3. "Model not found"
+# 解决：确认模型名称与 Provider 支持列表匹配
+
+# 4. "Memory error"
+# 解决：降低 processing.max_workers 或增加系统内存
+
+# 5. "Rate limit exceeded"
+# 解决：降低 embedding.params.rate_limit 或升级 API 套餐
+
+
+# 最后更新日期：2026-08-16
+# 版本：2.0
+# 状态：✅ 生产就绪
