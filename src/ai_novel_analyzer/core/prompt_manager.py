@@ -27,7 +27,7 @@ Usage Examples:
    python -m ai_novel_analyzer.cli batch-process \
        --input-dir data/raw/ \
        --output-dir data/processed/ \
-       --workers 4 \
+       --workers 1 \
        --continue-on-failure
 
 3. Verify all processed files:

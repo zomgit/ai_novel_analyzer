@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{% block title %}维度库浏览{% endblock %}
+
+{% block content %}
+<div x-data="dimensionsBrowser()" class="space-y-6">
+    
+    <!-- 标题栏 -->
+    <div class="flex items-center justify-between">
+        <h2 class="text-3xl font-bold text-gray-800">🗃️ 维度库浏览</h2>
+        <select @change="changeDimension($event)" 
+                class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="characters">角色库</option>
+            <option value="locations">地点库</option>
+            <option value="items">物品库</option>
+            <option value="events">事件库</option>
+            <option value="skills">技能库</option>
+            <option value="world_building">世界观库</option>
+        </select>
+    </div>
+    
+    <!-- 统计信息卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+        <div class="bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-xl text-white shadow-md">
+            <p class="text-xs opacity-80">总记录数</p>
+            <p class="text-3xl font-bold" x-text="totalCount"></p>
+        </div>
+        <div class="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-xl text-white shadow-md">
+            <p class="text-xs opacity-80">已登场</p>
+            <p class="text-3xl font-bold" x-text="appearancesCount"></p>
+        dim</div>
+        <div class="bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl text-white shadow-md">
+            <p class="text-xs opacity-80">提及次数</p>
+            <p class="text-3xl font-bold" x-text="mentionsCount"></p>
+        </div>
+        <div class="bg-gradient-to-br from-yellow-500 to-yellow-600 p-4 rounded-xl text-white shadow-md">
+            <p class="text-xs opacity-80">最近章节</p>
+            <p class="text-lg font-bold truncate" x-text="latestChapter"></p>
+        </div>
+        <div class="bg-gradient-to-br from-pink-500 to-pink-600 p-4 rounded-xl text-white shadow-md">
+            <p class="text-xs opacity-80">关系网节点</p>
+            <p class="text-3xl font-bold" x-text="relationNodes"></p>
+        </div>
+        <div class="bg-gradient-to-br from-teal-500 to-teal-600 p-4 rounded-xl text-white shadow-md">
+            <p class="text-xs opacity-80">特征词</p>
+            <p class="text-lg font-bold truncate" x-text="topTag"></p>
+        </div>
+    </div>
+    
+    <!-- 搜索过滤区 -->
+    <div class="bg-white p-4 rounded-xl shadow-md border border-gray-100">
+        <div class="flex items-center space-x-4">
+            <div class="flex-1 relative">
+                <svg class="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" 
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input type="text" 
+                       x-model="searchQuery"
+                       @input.debounce.300ms="applyFilters()"
+                       placeholder="搜索名称、描述、标签..." 
+                       class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <button @click="resetFilters()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                ✖️ 重置
+            </button>
+        </div>
+        
+        <!-- 二级筛选器（动态显示） -->
+        <div x-show="currentDimension === 'characters'" class="mt-3 flex items-center space-x-3">
+            <label class="text-sm text-gray-600">角色类型:</label>
+            <select x-model="filters.roleType" @change="applyFilters()" class="px-3 py-1 border border-gray-300 rounded-lg text-sm">
+                <option value="">全部</option>
+                <option value="主角">主角</option>
+                <option value="配角">配角</option>
+                <option value="反派">反派</option>
+                <option value="路人">路人</option>
+            </select>
+            
+            <label class="text-sm text-gray-600">状态:</label>
+            <select x-model="filters.status" @change="applyFilters()" class="px-3 py-1 border border-gray-300 rounded-lg text-sm">
+                <option value="">全部</option>
+                <option value="存活">存活</option>
+                <option value="死亡">死亡</option>
+                <option value="未知">未知</option>
+            </select>
+        </div>
+    </div>
+    
+    <!-- 主内容区：左侧列表 + 右侧详情 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-500px)]">
+        
+        <!-- 左侧：搜索结果列表 -->
+        <div class="lg:col-span-2 bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden flex flex-col">
+            <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="font-semibold text-gray-700">
+                    <span x-text="dimensionLabels[currentDimension]"></span>
+                    <span class="text-sm font-normal text-gray-500 ml-2" 
+                          x-text="`(${filteredResults.length})`"></span>
+                </h3>
+                <span class="text-xs text-gray-500">点击查看详情</span>
+            </div>
+            
+            <div class="overflow-y-auto scrollbar-thin flex-1">
+                <template x-if="filteredResults.length === 0">
+                    <div class="text-center py-16 text-gray-400">
+                        <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0m0-9.414a4 4 0 00-5.656 0m0 9.414a4 4 0 005.656 0m0-9.414a4 4 0 01-5.656 0M3 12a9 9 0 1018 0 9 9 0 00-18 0z"/>
+                        </svg>
+                        <p>暂无匹配结果</p>
+                    </div>
+                </template>
+                
+                <div class="divide-y divide-gray-100">
+                    <template x-for="item in filteredResults" :key="item.id">
+                        <div @click="selectItem(item)"
+                             class="p-4 cursor-pointer hover:bg-blue-50 transition-colors"
+                             :class="selectedItem && selectedItem.id === item.id ? 'bg-blue-50 border-l-4 border-blue-600' : ''">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1 min-w-0">
+                                    <h4 class="font-semibold text-gray-800 truncate" x-text="item.name"></h4>
+                                    <p class="text-sm text-gray-600 mt-1 truncate" x-text="item.description || '无描述'"></p>
+                                    
+                                    <!-- 标签 -->
+                                    <div class="flex flex-wrap gap-2 mt-2">
+                                        <template x-for="tag in (item.tags || [])">
+                                            <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full" 
+                                                  x-text="tag"></span>
+                                        </template>
+                                    </div>
+                                </div>
+                                
+                                <!-- 出现次数徽章 -->
+                                <div class="ml-3 px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full whitespace-nowrap"
+                                     x-text="'出现' + item.appearances_count + '次'"></div>
+                            </div>
+                            
+                            <!-- 引用章节 -->
+                            <div class="mt-2 text-xs text-gray-500">
+                                <span>引用：</span>
+                                <template x-for="(ref, idx) in (item.references || []).slice(0, 3)" :key="idx">
+                                    <span class="mx-1" x-text="ref.chapter_id"></span>
+                                </template>
+                                <span x-show="(item.references || []).length > 3" class="text-gray-400">...</span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 右侧：选中项详情 -->
+        <div class="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+            <div x-show="!selectedItem" class="h-full flex items-center justify-center text-gray-400">
+                <div class="text-center">
+                    <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                    </svg>
+                    <p>选择一个条目查看详情</p>
+                </div>
+            </div>
+            
+            <div x-show="selectedItem" class="h-full overflow-y-auto scrollbar-thin">
+                <!-- 头部信息 -->
+                <div class="p-6 border-b border-gray-200">
+                    <h3 class="text-2xl font-bold text-gray-800" x-text="selectedItem.name"></h3>
+                    
+                    <div class="flex items-center space-x-2 mt-3">
+                        <template x-for="tag in (selectedItem.tags || [])">
+                            <span class="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full" 
+                                  x-text="tag"></span>
+                        </template>
+                    </div>
+                </div>
+                
+                <!-- 详细属性 -->
+                <div class="p-6 space-y-4">
+                    <!-- 描述 -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-600 mb-2">简介描述</h4>
+                        <p class="text-gray-700 text-sm leading-relaxed" x-text="selectedItem.description || '无描述信息'"></p>
+                    </div>
+                    
+                    <!-- 统计信息 -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-gray-50 p-3 rounded-lg">
+                            <p class="text-xs text-gray-500">登场次数</p>
+                            <p class="text-xl font-bold text-gray-800" x-text="selectedItem.appearances_count || 0"></p>
+                        </div>
+                        <div class="bg-gray-50 p-3 rounded-lg">
+                            <p class="text-xs text-gray-500">关联章节</p>
+                            <p class="text-xl font-bold text-gray-800" x-text="(selectedItem.references || []).length"></p>
+                        </div>
+                    </div>
+                    
+                    <!-- 首次登场 -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-600 mb-2">首次登场</h4>
+                        <p class="text-sm text-gray-700" x-text="(selectedItem.references || [])[0]?.chapter_id || '-'"></p>
+                    </div>
+                    
+                    <!-- 相关引用 -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-600 mb-2">相关章节 (<span x-text="(selectedItem.references || []).length"></span>)</h4>
+                        <div class="max-h-48 overflow-y-auto scrollbar-thin space-y-1">
+                            <template x-for="(ref, idx) in (selectedItem.references || []).slice(0, 10)" :key="idx">
+                                <div class="text-xs text-gray-600 px-3 py-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                                     x-text="ref.chapter_id"></div>
+                            </template>
+                            <div x-show="(selectedItem.references || []).length > 10" 
+                                 class="text-xs text-center text-gray-400 py-2">
+                                ... 还有 <span x-text="(selectedItem.references || []).length - 10"></span> 条
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- JSON 原始数据 -->
+                    <div>
+                        <button @click="showRawJson = !showRawJson" 
+                                class="text-xs text-blue-600 hover:text-blue-800">
+                            <template x-if="!showRawJson">▶</template>
+                            <template x-if="showRawJson">▼</template>
+                            查看原始 JSON 数据
+                        </button>
+                        <pre x-show="showRawJson" class="mt-2 p-3 bg-gray-900 text-green-400 text-xs rounded overflow-auto max-h-40"
+                             x-text="JSON.stringify(selectedItem, null, 2)"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+</div>
+
+<script>
+function dimensionsBrowser() {
+    return {
+        currentDimension: 'characters',
+        dimensionLabels: {
+            characters: '角色',
+            locations: '地点',
+            items: '物品',
+            events: '事件',
+            skills: '技能',
+            world_building: '世界观'
+        },
+        searchQuery: '',
+        filters: {
+            roleType: '',
+            status: ''
+        },
+        allData: [],
+        filteredResults: [],
+        selectedItem: null,
+        showRawJson: false,
+        
+        // 统计数据
+        totalCount: 0,
+        appearancesCount: 0,
+        mentionsCount: 0,
+        latestChapter: '-',
+        relationNodes: 0,
+        topTag: '-',
+        
+        async init() {
+            await this.loadDimensionData();
+        },
+        
+        changeDimension(event) {
+            this.currentDimension = event.target.value;
+            this.searchQuery = '';
+            this.filters = {};
+            this.selectedItem = null;
+            this.loadDimensionData();
+        },
+        
+        async loadDimensionData() {
+            try {
+                const res = await fetch(`/api/dimensions/${this.currentDimension}`);
+                
+                if (res.ok) {
+                    this.allData = await res.json();
+                    this.filteredResults = this.allData;
+                    
+                    // 更新统计信息
+                    this.updateStats();
+                } else {
+                    console.error('加载数据失败');
+                }
+            } catch (err) {
+                console.error('请求错误:', err);
+            }
+        },
+        
+        applyFilters() {
+            let results = this.allData;
+            
+            // 搜索过滤
+            if (this.searchQuery.trim()) {
+                const query = this.searchQuery.toLowerCase();
+                results = results.filter(item => 
+                    (item.name && item.name.toLowerCase().includes(query)) ||
+                    (item.description && item.description.toLowerCase().includes(query)) ||
+                    (item.tags && item.tags.some(tag => tag.toLowerCase().includes(query)))
+                );
+            }
+            
+            // 二级筛选
+            if (this.currentDimension === 'characters') {
+                if (this.filters.roleType) {
+                    results = results.filter(item => item.role_type === this.filters.roleType);
+                }
+                if (this.filters.status) {
+                    results = results.filter(item => item.status === this.filters.status);
+                }
+            }
+            
+            this.filteredResults = results;
+            this.selectedItem = null;
+        },
+        
+        resetFilters() {
+            this.searchQuery = '';
+            this.filters = { roleType: '', status: '' };
+            this.applyFilters();
+        },
+        
+        selectItem(item) {
+            this.selectedItem = item;
+        },
+        
+        updateStats() {
+            const data = this.allData;
+            this.totalCount = data.length;
+            this.appearancesCount = data.reduce((sum, item) => sum + (item.appearances_count || 0), 0);
+            this.relationNodes = new Set(data.flatMap(item => item.related_entities || [])).size;
+            
+            // 提取常见标签
+            const allTags = new Set();
+            data.forEach(item => {
+                (item.tags || []).forEach(tag => allTags.add(tag));
+            });
+            this.topTag = Array.from(allTags).sort((a, b) => b.length - a.length)[0]?.slice(0, 15) || '-';
+        }
+    };
+}
+</script>
+{% endblock %}

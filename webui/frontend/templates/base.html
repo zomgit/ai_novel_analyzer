@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI 小说拆书工作台{% endblock %}</title>
+    
+    <!-- Alpine.js (CDN) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- 本地静态资源 -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/table-resize.js"></script>
+    
+    <style>
+        [x-cloak] { display: none !important; }
+        .sidebar-link.active { @apply bg-blue-600; }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background-color: #f1f5f9; }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans">
+    <div x-data="{ sidebarOpen: true }" class="flex h-screen overflow-hidden">
+        
+        <!-- 左侧导航栏 -->
+        <aside :class="sidebarOpen ? 'w-64' : 'w-20'" 
+               class="bg-white shadow-lg transition-all duration-300 flex flex-col">
+            
+            <!-- Logo 区域 -->
+            <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                <h1 x-show="sidebarOpen" class="text-xl font-bold text-blue-600 truncate">AI 拆书台</h1>
+                <button @click="sidebarOpen = !sidebarOpen" 
+                        class="p-2 hover:bg-gray-100 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- 导航菜单 -->
+            <nav class="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
+                <a href="/" 
+                   class="sidebar-link flex items-center px-4 py-3 text-gray-700 hover:bg-blue-50 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                    </svg>
+                    <span x-show="sidebarOpen" class="ml-3">总览仪表盘</span>
+                </a>
+                
+                <a href="/splitting" 
+                   class="sidebar-link flex items-center px-4 py-3 text-gray-700 hover:bg-blue-50 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                    </svg>
+                    <span x-show="sidebarOpen" class="ml-3">拆书工坊</span>
+                </a>
+                
+                <a href="/analysis" 
+                   class="sidebar-link flex items-center px-4 py-3 text-gray-700 hover:bg-blue-50 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                    </svg>
+                    <span x-show="sidebarOpen" class="ml-3">分析任务中心</span>
+                </a>
+                
+                <a href="/dimensions" 
+                   class="sidebar-link flex items-center px-4 py-3 text-gray-700 hover:bg-blue-50 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h3m4 0h10a1 1 0 011 1v1a2 2 0 01-2 2h-1a2 2 0 01-2-2V7m-8 0h2m8 0a2 2 0 012 2v1a4 4 0 01-4 4h-1M7 7v12a2 2 0 002 2h6a2 2 0 002-2v-1m-3 7a2 2 0 01-2-2v-1"/>
+                    </svg>
+                    <span x-show="sidebarOpen" class="ml-3">维度库浏览</span>
+                </a>
+                
+                <a href="/settings" 
+                   class="sidebar-link flex items-center px-4 py-3 text-gray-700 hover:bg-blue-50 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span x-show="sidebarOpen" class="ml-3">系统设置</span>
+                </a>
+            </nav>
+            
+            <!-- 版本信息 -->
+            <div class="p-4 border-t border-gray-200 text-xs text-gray-500">
+                <p x-show="sidebarOpen">v1.0.0 | FastAPI + Alpine.js</p>
+            </div>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="flex-1 overflow-y-auto scrollbar-thin p-6">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

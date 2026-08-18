@@ -6,11 +6,17 @@ import json
 import time
 from pathlib import Path
 import logging
+from datetime import datetime, timezone
 
 from ..models import NovelChapterInput, ProcessingResult
 from .prompt_manager import PromptManager
+from scripts.split_book import sanitize_dirname
 
 logger = logging.getLogger(__name__)
+
+# Debug dump 目录（懒初始化，仅当 logging.debug_api_dump=true 时生效）
+_debug_dump_dir: Optional[Path] = None
+_debug_dump_checked: bool = False
 
 
 @dataclass
@@ -23,9 +29,14 @@ class ChapterProcessor:
     
     def __post_init__(self):
         """Initialize configuration defaults"""
+        # 从 ConfigManager 获取统一的 max_tokens / temperature 等默认值
+        # 避免各处硬编码，所有 AI 调用参数统一由 config_manager 管控
+        from .config_manager import get_config
+        _cfg = get_config()
+        
         self.default_config = {
-            "temperature": 0.0,  # Deterministic output
-            "max_tokens": 24576,  # Increased from 16384 for large models like DeepSeek-V4
+            "temperature": _cfg.temperature,
+            "max_tokens": _cfg.max_tokens,
             "timeout": 300,
             "retry_attempts": 5,  # Increased from 3 for unstable APIs
             "strict_validation": True
@@ -36,13 +47,63 @@ class ChapterProcessor:
         # Clamp to range [1, 5]
         self.max_chapter_retries = max(1, min(5, max_retries))
         self.skip_on_max_retries = proc_config.get("skip_chapter_on_max_retries", True)
-        self.config.update(self.default_config)
+        # 外部传入的 config 优先，缺项由 ConfigManager 统一值补齐
+        merged = {**self.default_config, **self.config}
+        self.config = merged
+        
+        # 初始化 debug dump 目录（懒检查，仅首次调用时生效）
+        self._init_debug_dump_dir()
+    
+    @staticmethod
+    def _init_debug_dump_dir():
+        """检查配置，若 logging.debug_api_dump=true 则创建 logs/debug/ 目录"""
+        global _debug_dump_dir, _debug_dump_checked
+        if _debug_dump_checked:
+            return
+        _debug_dump_checked = True
+        try:
+            from ai_novel_analyzer.core.config_manager import get_config
+            config = get_config()
+            if config.get('logging.debug_api_dump', False):
+                _debug_dump_dir = config.logs_dir / 'debug'
+                _debug_dump_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Debug API dump 已启用，输出目录: {_debug_dump_dir}")
+        except Exception:
+            pass
+    
+    @staticmethod
+    def _dump_debug_files(chapter_id: str, prompt: str, raw_output: str):
+        """将完整的 prompt 和 raw output 写入 logs/debug/ 下的纯文本文件
+        
+        文件名格式：{chapter_id}_{timestamp}_request.txt / _response.txt
+        加入时间戳以避免并发分析时文件名冲突。
+        
+        Args:
+            chapter_id: 章节 ID（如 chap_0012）
+            prompt: 发送给 AI 的完整 prompt
+            raw_output: AI 返回的原始文本
+        """
+        if _debug_dump_dir is None:
+            return
+        try:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            req_path = _debug_dump_dir / f"{chapter_id}_{ts}_request.txt"
+            with open(req_path, 'w', encoding='utf-8') as f:
+                f.write(prompt)
+            
+            resp_path = _debug_dump_dir / f"{chapter_id}_{ts}_response.txt"
+            with open(resp_path, 'w', encoding='utf-8') as f:
+                f.write(raw_output)
+            
+            logger.debug(f"Debug dump: {chapter_id} request/response → {req_path.parent}")
+        except Exception as e:
+            logger.warning(f"Failed to write debug dump for {chapter_id}: {e}")
     
     def process_chapter(
         self, 
         chapter_input: NovelChapterInput,
         previous_context_summary: Optional[str] = None,
-        show_stream: bool = True  # Default to streaming
+        show_stream: bool = False  # Default to non-streaming
     ) -> ProcessingResult:
         """Process a single chapter and extract structured information
         
@@ -68,7 +129,7 @@ class ChapterProcessor:
             prompt = self._build_prompt(chapter_input, previous_context_summary)
             
             # Step 2: Call AI API
-            raw_output = self._call_ai_api(
+            raw_output, token_stats = self._call_ai_api(
                 prompt, chapter_input.chapter_id,
                 stream_callback=self._stream_print_callback if show_stream else None
             )
@@ -85,6 +146,9 @@ class ChapterProcessor:
             if structured_data and 'chapter_summary' in structured_data:
                 brief_summary = structured_data['chapter_summary'].get('brief_summary')
             
+            # 计算耗时
+            elapsed_time = time.time() - start_time
+            
             result = ProcessingResult(
                 chapter_id=chapter_input.chapter_id,
                 timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -92,7 +156,12 @@ class ChapterProcessor:
                 error_message=None if structured_data else f"Failed after {self.max_chapter_retries} retries",
                 structured_data=structured_data,
                 original_text=chapter_input.content,
-                next_context_summary=brief_summary
+                next_context_summary=brief_summary,
+                processed_at=datetime.now(timezone.utc).isoformat(),
+                stats={
+                    'elapsed_time': elapsed_time,
+                    'tokens': token_stats
+                }
             )
             
             return result
@@ -119,9 +188,13 @@ class ChapterProcessor:
         # Load the base template
         base_template = self.prompt_manager.load("chapter_processor")
         
+        # ✅ P0-5: 获取前几卷的卷总结（volumes_summary）
+        # prev_volumes_summary = self._load_previous_volumes_summary(chapter_input)
+        
         # Format the prompt - context_summary will be replaced inside HTML tags in template
         replacements = {
             "{context_summary}": context_summary or "",  # Template provides <summary> tags
+            # "{prev_volumes_summary}": prev_volumes_summary or "",  # 新增：前几卷总结
             "{vol_num}": str(chapter_input.volume_number),
             "{chap_num}": str(chapter_input.chapter_number),
             "{text_content}": chapter_input.content,  # Template provides <chapter_text> tag
@@ -131,6 +204,71 @@ class ChapterProcessor:
             formatted_prompt = formatted_prompt.replace(placeholder, value)
         
         return formatted_prompt
+    
+    def _load_previous_volumes_summary(self, chapter_input: NovelChapterInput) -> Optional[str]:
+        """加载前几卷的卷总结（volumes_summary）
+        
+        Args:
+            chapter_input: 章节输入数据
+            
+        Returns:
+            前几卷的文本总结，若无则返回 None
+        """
+        try:
+            from pathlib import Path
+            import json as json_lib
+            
+            # 从配置中获取工作区根目录
+            config = get_config()
+            workspace_root = Path(config.workspace.root if hasattr(config, 'workspace') and isinstance(config.workspace, dict) else 
+                                str(PROJECT_ROOT / "workspace") if (PROJECT_ROOT := Path(__file__).parent.parent.resolve().parents[1]).exists() else Path.cwd())
+            
+            project_name = chapter_input.project_name
+            book_name = chapter_input.book_name
+            current_vol_num = chapter_input.volume_number
+            
+            # 查找书籍目录
+            projects_dir = config.projects_dir
+            book_dir = projects_dir / sanitize_dirname(project_name) / sanitize_dirname(book_name)
+            
+            if not book_dir.exists():
+                return None
+            
+            prev_summaries = []
+            
+            # 遍历所有小于当前卷号的卷
+            for vol_dir in sorted(book_dir.glob("vol_*")):
+                if not vol_dir.is_dir():
+                    continue
+                
+                vol_meta_path = vol_dir / "volume_meta.json"
+                if not vol_meta_path.exists():
+                    continue
+                
+                with open(vol_meta_path, "r", encoding="utf-8-sig") as f:
+                    vol_meta = json_lib.load(f)
+                
+                vol_num = vol_meta.get("volume_number", 0)
+                if vol_num >= current_vol_num:
+                    continue  # 只处理之前的卷
+                
+                # 检查是否有卷总结
+                volumes_summary = vol_meta.get("volumes_summary", {})
+                if volumes_summary:
+                    summary_text = volumes_summary.get("summary", "")
+                    if summary_text:
+                        prev_summaries.append(
+                            f"【第{vol_num}卷】\n{summary_text}"
+                        )
+            
+            if not prev_summaries:
+                return None
+            
+            return "\n\n".join(prev_summaries)
+            
+        except Exception as e:
+            logger.warning(f"加载前几卷总结失败：{e}")
+            return None
         
     def _call_ai_api(
         self, 
@@ -138,7 +276,7 @@ class ChapterProcessor:
         chapter_id: str,
         attempt: int = 1,
         stream_callback=None
-    ) -> str:
+    ) -> tuple[str, dict]:
         """Call AI API with retry logic
         
         Args:
@@ -147,7 +285,7 @@ class ChapterProcessor:
             attempt: Current retry attempt number
             
         Returns:
-            Raw string response from AI API
+            Tuple of (raw_output: str, token_stats: dict)
             
         Raises:
             RuntimeError: If all retry attempts fail
@@ -166,9 +304,9 @@ class ChapterProcessor:
                 
                 for chunk in self.ai_api_client.generate(
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=self.config.get("temperature", 0.0),
-                    max_tokens=self.config.get("max_tokens", 8192),
-                    timeout=self.config.get("timeout", 120),
+                    temperature=self.config["temperature"],
+                    max_tokens=self.config["max_tokens"],
+                    timeout=self.config["timeout"],
                     stream=True
                 ):
                     # Skip empty choices chunks (e.g., final usage-only chunk)
@@ -189,18 +327,37 @@ class ChapterProcessor:
                     ttft = first_chunk_time - start_time
                     logger.info(f"📊 Stream stats: TTFT={ttft:.3f}s, Total={total_time:.3f}s, Chunks={len(collected_chunks)}")
                 
-                # Return concatenated result
-                return ''.join(collected_chunks)
+                # Return concatenated result + no token info
+                collected_text = ''.join(collected_chunks)
+                self._dump_debug_files(chapter_id, prompt, collected_text)
+                return collected_text, {}
             else:
                 # Non-stream mode (default behavior)
                 response = self.ai_api_client.generate(
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=self.config.get("temperature", 0.0),
-                    max_tokens=self.config.get("max_tokens", 8192),
-                    timeout=self.config.get("timeout", 120),
+                    temperature=self.config["temperature"],
+                    max_tokens=self.config["max_tokens"],
+                    timeout=self.config["timeout"],
                     stream=False  # Explicitly disable streaming for non-stream mode
                 )
-                return response.choices[0].message.content
+                
+                # Extract token usage from response (if available)
+                token_stats = {}
+                if hasattr(response, 'usage') and response.usage:
+                    token_stats = {
+                        'prompt_tokens': getattr(response.usage, 'prompt_tokens', 0),
+                        'completion_tokens': getattr(response.usage, 'completion_tokens', 0),
+                        'total_tokens': getattr(response.usage, 'total_tokens', 0)
+                    }
+                    logger.debug(
+                        f"📊 Token usage: {token_stats['total_tokens']:,} total "
+                        f"({token_stats['prompt_tokens']:,} prompt + "
+                        f"{token_stats['completion_tokens']:,} completion)"
+                    )
+                
+                raw_content = response.choices[0].message.content
+                self._dump_debug_files(chapter_id, prompt, raw_content or '')
+                return raw_content, token_stats
             
         except Exception as e:
             if attempt < self.config.get("retry_attempts", 3):
@@ -260,7 +417,7 @@ class ChapterProcessor:
                         f"触发重试 ({attempt}/{self.max_chapter_retries})"
                     )
                     # Re-call AI with same prompt
-                    raw_output = self._call_ai_api(prompt, chapter_input.chapter_id)
+                    raw_output, token_stats = self._call_ai_api(prompt, chapter_input.chapter_id)
                     cleaned_output = self._clean_json_output(raw_output)
                 else:
                     # Max retries reached

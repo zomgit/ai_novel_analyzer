@@ -1,5 +1,6 @@
 """Data Models for Chapter Processing"""
 
+import re
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
@@ -24,9 +25,17 @@ class NovelChapterInput:
     chapter_number: int
     estimated_tokens: Optional[int] = None
     
+    # 血缘信息（由拆书/分析入口写入，用于 chapter_identity）
+    project_name: Optional[str] = None
+    book_name: Optional[str] = None
+    volume_title: Optional[str] = None
+    
     def __post_init__(self):
         """Validate input data"""
-        if not self.chapter_id.startswith("vol_") or "_chap_" not in self.chapter_id:
+        # 兼容两种 ID 格式：vol_X_chap_Y（旧）与 chap_XXXX（workspace 新结构）
+        is_legacy = self.chapter_id.startswith("vol_") and "_chap_" in self.chapter_id
+        is_workspace = bool(re.match(r'^chap_\d{4}$', self.chapter_id))
+        if not (is_legacy or is_workspace):
             raise ValueError(f"Invalid chapter_id format: {self.chapter_id}")
         
         # Estimate tokens (rough approximation for Chinese text)
@@ -45,6 +54,8 @@ class ProcessingResult:
     structured_data: Optional[Dict[str, Any]] = None
     original_text: Optional[str] = None
     next_context_summary: Optional[str] = None
+    processed_at: Optional[str] = None      # ISO8601 UTC 时间戳
+    stats: Optional[Dict[str, Any]] = None  # 性能统计：elapsed_time / tokens
     
     @property
     def has_data(self) -> bool:
@@ -56,7 +67,7 @@ class ProcessingResult:
 class BatchProcessingConfig:
     """Configuration for batch processing"""
     
-    max_workers: int = 4
+    max_workers: int = 1
     retry_on_failure: bool = True
     continue_on_error: bool = True
     save_intermediate: bool = True
@@ -65,6 +76,9 @@ class BatchProcessingConfig:
     # Storage configuration
     output_dir: Optional[str] = None
     vector_db_path: Optional[str] = None
+    
+    # Workspace 卷目录（新结构：分析输出直接写入该目录）
+    volume_dir: Optional[str] = None
     
     # Configuration file (优先级高于环境变量)
     config_file: Optional[str] = None

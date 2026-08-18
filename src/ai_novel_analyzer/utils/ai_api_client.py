@@ -4,11 +4,67 @@ from typing import Optional, Dict, Any, TypeVar, Protocol
 import requests
 import json
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# HTTP 请求专用日志器
+http_logger = None
+
+def get_http_logger():
+    """懒加载 HTTP 请求日志器"""
+    global http_logger
+    if http_logger is None:
+        try:
+            from ai_novel_analyzer.core.logging_config import setup_http_request_logger
+            http_logger = setup_http_request_logger()
+        except Exception:
+            http_logger = logging.getLogger('http_requests_default')
+    return http_logger
+
 # Generic type for response objects
 ResponseT = TypeVar('ResponseT')
+
+
+class ChoiceWrapper:
+    """Nested choice wrapper for MockResponse compatibility"""
+    def __init__(self, choice_data: dict, full_data: dict):
+        # Streaming chunks use 'delta', non-streaming uses 'message'
+        # 注意：某些 API 可能直接返回 string content，而非嵌套对象
+        # full_data 为完整响应 dict（不能用 self.data，self 指向 ChoiceWrapper 自身）
+        default_role = 'assistant'
+        try:
+            default_role = full_data.get('choices', [{}])[0].get('role') or 'assistant'
+        except (IndexError, AttributeError):
+            pass
+        
+        delta = choice_data.get('delta')
+        msg_data = None
+        
+        if isinstance(delta, str):
+            # 情况 A: delta 直接是字符串内容
+            msg_data = {'role': default_role, 'content': delta}
+        elif isinstance(delta, dict):
+            # 情况 B: delta 是标准 dict（可能只含 role 无 content）
+            msg_data = delta
+        elif isinstance(choice_data.get('message'), dict):
+            # 情况 C: message 是标准 dict (非流式)
+            msg_data = choice_data.get('message')
+        else:
+            # 情况 D: 扁平化结构或空 chunk（如仅含 finish_reason 的收尾块）
+            msg_data = {'role': default_role, 'content': choice_data.get('content') or ''}
+        
+        self.message = MessageWrapper(msg_data or {})
+        # Stream chunks: None until final chunk; avoid masking truncation ('length')
+        self.finish_reason = choice_data.get('finish_reason')
+
+
+class UsageWrapper:
+    """Token usage wrapper for MockResponse.usage compatibility"""
+    def __init__(self, data: dict):
+        self.prompt_tokens = data.get('prompt_tokens', 0)
+        self.completion_tokens = data.get('completion_tokens', 0)
+        self.total_tokens = data.get('total_tokens', 0)
 
 
 class OpenAICompatibleClient:
@@ -29,7 +85,7 @@ class OpenAICompatibleClient:
         base_url: str,
         model: str = "gpt-4o",
         temperature: float = 0.0,
-        max_tokens: int = 8192,
+        max_tokens: int = 32768,
         timeout: int = 120,
         system_prompt: Optional[str] = None
     ):
@@ -128,6 +184,21 @@ class OpenAICompatibleClient:
                 )
             
             # Non-stream mode: wait for complete response
+            start_time = datetime.now()
+            
+            http_log = {
+                "timestamp": start_time.isoformat(),
+                "type": "llm_call",
+                "method": "POST",
+                "url": full_url,
+                "request_headers": {"Content-Type": "application/json"},
+                "request_body_size": len(json.dumps(payload)),
+                "response_status": None,
+                "response_time_ms": None,
+                "error_message": None
+            }
+            
+            # Send request (non-stream mode)
             response = requests.post(
                 full_url,
                 headers=headers,
@@ -135,11 +206,27 @@ class OpenAICompatibleClient:
                 timeout=req_timeout
             )
             
+            end_time = datetime.now()
+            elapsed_ms = int((end_time - start_time).total_seconds() * 1000)
+            
+            http_log["response_status"] = response.status_code
+            http_log["response_time_ms"] = elapsed_ms
+            
             # Raise exception for bad status codes
             response.raise_for_status()
             
             # Parse response
             data = response.json()
+            
+            # Log to HTTP logger
+            usage_data = data.get('usage', {})
+            http_log['response_body_size'] = len(response.content)
+            http_log['prompt_tokens'] = usage_data.get('prompt_tokens', 0)
+            http_log['completion_tokens'] = usage_data.get('completion_tokens', 0)
+            http_log['total_tokens'] = usage_data.get('total_tokens', 0)
+            http_log['response_content_preview'] = str(data)[:500] + '...' if str(data) else ''
+            
+            get_http_logger().debug(json.dumps(http_log, ensure_ascii=False))
             
             # Validate response structure
             if 'choices' not in data or len(data['choices']) == 0:
@@ -148,9 +235,9 @@ class OpenAICompatibleClient:
             # Detect truncation: finish_reason == 'length' means output hit max_tokens limit
             finish_reason = data['choices'][0].get('finish_reason', '')
             if finish_reason == 'length':
-                logger.warning(
-                    f"Response truncated by max_tokens limit (finish_reason=length). "
-                    f"Output may be incomplete."
+                raise ValueError(
+                    "Response truncated by max_tokens limit (finish_reason=length). "
+                    "Output is incomplete, triggering retry."
                 )
             
             # Detect empty content
@@ -163,15 +250,15 @@ class OpenAICompatibleClient:
             
             # Return mock response object (compatible with existing code)
             return MockResponse(data)
-            
-        except requests.exceptions.Timeout:
-            raise RuntimeError(f"Request timed out after {req_timeout}s")
+        
+            http_log['error_message'] = f"Request timed out after {req_timeout}s"
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else 'unknown'
             error_msg = e.response.text[:500] if e.response is not None else str(e)
+            http_log['response_status'] = status
+            http_log['error_message'] = f"HTTP error: {status} - {error_msg}"
+            get_http_logger().debug(json.dumps(http_log, ensure_ascii=False))
             raise RuntimeError(f"HTTP error: {status} - {error_msg}")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON response: {str(e)}")
     
     def _stream_generate(
         self,
@@ -185,7 +272,7 @@ class OpenAICompatibleClient:
             
         Yields MockResponse objects for each SSE (Server-Sent Event) line.
         """
-        import json
+
             
         logger.info(f"[_stream_generate] Starting stream to {full_url}")
             
@@ -227,9 +314,9 @@ class OpenAICompatibleClient:
                                 
                             # Detect truncation on the final stream chunk
                             if choices and choices[0].get('finish_reason') == 'length':
-                                logger.warning(
+                                raise ValueError(
                                     "Response truncated by max_tokens limit (finish_reason=length). "
-                                    "Output may be incomplete."
+                                    "Output is incomplete, triggering retry."
                                 )
                                 
                             # Yield partial response as MockResponse
@@ -241,9 +328,7 @@ class OpenAICompatibleClient:
                         except json.JSONDecodeError as e:
                             logger.debug(f"[_stream_generate] Skipping unparseable line {line_count}: {e}")
                             continue
-                else:
-                    logger.debug(f"[_stream_generate] Empty line #{line_count}, skipping")
-                        
+                
         except requests.exceptions.Timeout:
             raise RuntimeError(f"Streaming request timed out after {timeout}s")
         except Exception as e:
@@ -342,16 +427,9 @@ class OllamaClient:
         predict = num_predict if num_predict is not None else self.num_predict
         
         # Convert OpenAI-style messages to Ollama format
-        formatted_messages = []
-        for msg in messages:
-            formatted_messages.append({
-                "role": msg['role'],
-                "content": msg['content']
-            })
-        
         payload = {
             "model": self.model,
-            "messages": formatted_messages,
+            "messages": [{"role": msg['role'], "content": msg['content']} for msg in messages],
             "stream": False,
             "options": {
                 "temperature": temp,
@@ -601,7 +679,7 @@ def get_ai_client_from_config(config_dict: Dict[str, Any]) -> object:
         base_url: "https://api.siliconflow.cn/v1"
         model: "Qwen/Qwen2.5-72B-Instruct"
         temperature: 0.0
-        max_tokens: 8192
+        max_tokens: 32768
     ```
     
     Args:

@@ -1,5 +1,5 @@
 [project]
-name = "novel-structure-analyzer"
+name = "ai-novel-analyzer"
 version = "2.0.0"
 description = "Novel Structure Analyzer - Professional Text Deep Analysis & Continuation Preparation Platform"
 readme = "README.md"
@@ -48,6 +48,14 @@ dependencies = [
 ]
 
 [dependency-groups]
+# Web UI 依赖
+webui = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "jinja2>=3.1.3",
+    "python-multipart>=0.0.9",
+]
+
 # 开发依赖（uv sync 时可用 --group dev 安装）
 dev = [
     "pytest>=7.4.0",
@@ -64,9 +72,6 @@ Documentation = "https://github.com/your-repo/ai-novel-analyzer/docs"
 Repository = "https://github.com/your-repo/ai-novel-analyzer.git"
 Issues = "https://github.com/your-repo/ai-novel-analyzer/issues"
 
-[project.scripts]
-# CLI command for batch processing
-analyzer = "ai_novel_analyzer:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

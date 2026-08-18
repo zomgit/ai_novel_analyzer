@@ -57,6 +57,7 @@ user_data/database/
 
 # Configuration and secrets
 .env
+.env.backup*
 .env.local
 .env.*.local
 config/production.yaml
@@ -74,8 +75,14 @@ test_retry_config.py
 htmlcov/
 .tox/
 
-# User data directories (uncomment if you want to exclude all user data)
-# user_data/
+# User data directories
+user_data/
+
+# Workspace data
+workspace/
+
+# Windows shortcuts
+*.lnk
 
 # OS generated files
 .DS_Store

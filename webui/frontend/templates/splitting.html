@@ -1,0 +1,1757 @@
+{% extends "base.html" %}
+
+{% block title %} 拆书工坊{% endblock %}
+
+{% block content %}
+<div x-data="splittingWorkshop()" x-init="loadProjects()" class="flex flex-col h-full space-y-4">
+
+    <!-- 标题栏 + 项目选择下拉 -->
+    <div class="flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+            <h2 class="text-2xl font-bold text-gray-800">✂️ 拆书工坊</h2>
+            <div class="flex items-center gap-2">
+                <select x-model="selectedProject" @change="onProjectSelect()"
+                        class="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm shadow-sm hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        title="选择项目">
+                    <option value="">请选择项目</option>
+                    <template x-for="project in projects" :key="project.project_name">
+                        <option :value="project.project_name" x-text="project.project_name"></option>
+                    </template>
+                </select>
+                <button @click="openCreateProjectDialog()" 
+                        class="px-2.5 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
+                        title="创建新项目">
+                    ➕ 项目
+                </button>
+            </div>
+        </div>
+        <div class="text-sm text-gray-500">
+            项目 → 书籍 → 卷 → 章节 → 分析
+        </div>
+    </div>
+
+    <!-- 主体布局：左侧 1/3 + 右侧 2/3 -->
+    <div class="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
+
+        <!-- ================= 左侧面板（1/3）：树形导航 + 状态 ================= -->
+        <div class="lg:w-1/3 flex flex-col space-y-3 min-h-0 overflow-hidden">
+
+            <!-- 树形导航（flex-1 撑满，内部滚动） -->
+            <div class="bg-white p-3 rounded-xl shadow-md border border-gray-100 flex flex-col flex-1 min-h-0 overflow-hidden">
+                <div class="flex items-center justify-between mb-2 shrink-0">
+                    <h3 class="text-base font-bold text-gray-800">📁 项目 / 书籍 / 卷</h3>
+                </div>
+
+                <div class="flex-1 overflow-y-auto scrollbar-thin">
+                    <template x-if="projects.length === 0">
+                        <p class="text-gray-400 text-center py-8 text-sm">暂无项目，点击右上角「➕ 项目」创建</p>
+                    </template>
+
+                    <template x-for="project in projects" :key="project.project_name">
+                        <div class="mb-1">
+                            <!-- Level 1：项目节点 -->
+                            <div @click="toggleProject(project.project_name)"
+                                 class="group flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all hover:shadow-md hover:border-blue-300">
+                                <span class="text-xs text-gray-400 w-4 shrink-0"
+                                      x-text="expandedProjects.includes(project.project_name) ? '▼' : '▶'"></span>
+                                <span class="text-sm font-semibold text-gray-700 truncate" x-text="project.project_name"></span>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 shrink-0"
+                                      x-text="(project.books || []).length + '本'"></span>
+                                <div class="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button @click.stop="openCreateBookDialog()"
+                                            class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-all"
+                                            title="新建书籍">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Level 2/3：书籍 + 卷 -->
+                            <template x-if="expandedProjects.includes(project.project_name)">
+                                <div class="ml-3 pl-2 border-l-2 border-gray-200 space-y-0.5">
+                                    <template x-if="(project.books || []).length === 0">
+                                        <p class="text-gray-300 text-xs py-1 pl-1">暂无书籍</p>
+                                    </template>
+
+                                    <template x-for="book in project.books" :key="book.book_name">
+                                        <div>
+                                            <!-- Level 2：书籍节点 -->
+                                            <div @click="selectBook(project.project_name, book)"
+                                                 class="group/book flex items-center gap-2 px-3 py-2 rounded border cursor-pointer transition-all hover:shadow-md hover:border-blue-300">
+                                                <span class="text-xs text-gray-400 w-4 shrink-0"
+                                                      @click.stop="toggleBook(book.book_name)"
+                                                      x-text="expandedBooks.includes(book.book_name) ? '▼' : '▶'"></span>
+                                                <span class="text-sm text-gray-700 truncate" x-text="book.book_name"></span>
+
+                                                <!-- 状态小标记 -->
+                                                <template x-if="book.split_status === 'pending'">
+                                                    <span class="text-[9px] px-1.5 rounded-full bg-yellow-100 text-yellow-700 shrink-0">待分割</span>
+                                                </template>
+
+                                                <!-- 操作按钮组 -->
+                                                <div class="ml-auto flex items-center gap-1 opacity-0 group-hover/book:opacity-100 transition-opacity">
+                                                    <button @click.stop="openEditBookDialog(book)"
+                                                            class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                                                            title="编辑书籍">
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                                        </svg>
+                                                    </button>
+                                                    <button @click.stop="openUploadPreviewDialog(book)"
+                                                            class="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded transition-all"
+                                                            title="上传 TXT">
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Level 3：卷节点（拖拽排序容器） -->
+                                            <template x-if="expandedBooks.includes(book.book_name)">
+                                                <div class="ml-5 pl-2 border-l border-gray-100 space-y-0.5">
+                                                    <template x-if="(book.volumes || []).length === 0">
+                                                        <p class="text-gray-300 text-[11px] py-0.5 pl-1">暂无卷</p>
+                                                    </template>
+
+                                                    <template x-for="(vol, vIdx) in (book.volumes || [])" :key="vol.dir">
+                                                        <div class="group/vol flex items-center gap-2 px-3 py-2 rounded cursor-default hover:bg-gray-50 border transition-colors"
+                                                             :class="statusPanelMode === 'volume' && statusPanelVolume?.dir === vol.dir ? 'bg-blue-50 border-blue-300' : 'border-transparent'"
+                                                             @click="selectVolumeNode(project.project_name, book, vol)"
+                                                             @drop.prevent="onDrop($event, project.project_name, book, vIdx)"
+                                                             @dragover.prevent>
+                                                            <!-- 拖动手柄：仅此区域与卷名可拖拽 -->
+                                                            <div draggable="true"
+                                                                 @dragstart.stop="onDragStart($event, project.project_name, book, vIdx)"
+                                                                 @dragend.stop="onDragEnd()"
+                                                                 class="drag-handle cursor-grab p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded transition-colors" 
+                                                                 :class="isDragging && dragIndex === vIdx ? 'cursor-grabbing bg-blue-100 text-blue-600' : ''"
+                                                                 title="拖拽调整顺序">
+                                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+                                                                </svg>
+                                                            </div>
+                                                            <span draggable="true"
+                                                                  @dragstart.stop="onDragStart($event, project.project_name, book, vIdx)"
+                                                                  @dragend.stop="onDragEnd()"
+                                                                  class="text-sm text-gray-600 truncate cursor-pointer select-none"
+                                                                  :class="isDragging && dragIndex === vIdx ? 'text-blue-600' : ''"
+                                                                  title="拖拽调整顺序，点击查看详情"
+                                                                  x-text="vol.name ? `第${vIdx + 1}卷 · ${vol.name}` : `第${vIdx + 1}卷`"></span>
+                                                            <!-- ✏️ 编辑卷名 -->
+                                                            <button @click.stop="openRenameVolumeDialog(vol, vIdx)"
+                                                                    class="ml-auto opacity-0 group-hover/vol:opacity-100 p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all"
+                                                                    title="编辑卷名">
+                                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 左下角：状态面板（九宫格，书=汇总/卷=详情） -->
+            <div class="bg-white p-3 rounded-xl shadow-md border border-gray-100 shrink-0">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-base font-bold text-gray-800"
+                        x-text="statusPanelMode === 'volume' ? '📄 卷详情' : '📊 书籍状态'"></h3>
+                    <button x-show="statusPanelMode === 'volume'" @click="statusPanelMode = 'book'"
+                            class="text-[10px] text-blue-600 hover:underline">← 返回整书</button>
+                </div>
+                <template x-if="!selectedBook">
+                    <p class="text-gray-400 text-center py-2 text-sm">👆 请选中书籍查看状态</p>
+                </template>
+
+                <!-- 九宫格：整书汇总模式 -->
+                <template x-if="selectedBook && bookStatus && statusPanelMode === 'book'">
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">作者</p>
+                            <p class="text-xs font-semibold text-gray-800 truncate" :title="bookStatus.author || ''"
+                               x-text="bookStatus.author || '未知'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">卷数</p>
+                            <p class="text-xs font-semibold text-gray-800" x-text="(bookStatus.volumes || []).length + ' 卷'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">总章数</p>
+                            <p class="text-xs font-semibold text-gray-800" x-text="totalBookChapters + ' 章'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">🔪 切分</p>
+                            <p class="text-xs font-semibold"
+                               :class="bookStatus.split_status === 'pending' ? 'text-yellow-600' : 'text-green-600'"
+                               x-text="bookStatus.split_status === 'pending' ? '未分割' : '已完成'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">⚡ 分析</p>
+                            <p class="text-xs font-semibold"
+                               :class="bookStatus.analysis_progress >= 80 ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="bookStatus.analysis_progress + '%'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">📖 卷总结</p>
+                            <p class="text-xs font-semibold"
+                               :class="completedSummaryCount === (bookStatus.volumes || []).length ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="completedSummaryCount + '/' + (bookStatus.volumes || []).length"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">🗃️ 维度库</p>
+                            <p class="text-xs font-semibold"
+                               :class="dimensionLibSynced ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="dimensionLibSynced ? '已同步' : '待同步'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">🔍 向量库</p>
+                            <p class="text-xs font-semibold"
+                               :class="vectorLibSynced ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="vectorLibSynced ? '已同步' : '待同步'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">总字数</p>
+                            <p class="text-xs font-semibold text-gray-800" x-text="formatNumber(totalBookChars) + ' 字'"></p>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 九宫格：单卷详情模式 -->
+                <template x-if="selectedBook && bookStatus && statusPanelMode === 'volume' && statusPanelVolume">
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">卷名</p>
+                            <p class="text-xs font-semibold text-gray-800 truncate" :title="statusPanelVolume.name || ''"
+                               x-text="statusPanelVolume.name || '未命名'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">卷作者</p>
+                            <p class="text-xs font-semibold text-gray-800 truncate"
+                               :title="volumeMetaCache[statusPanelVolume.dir]?.volume_author || bookStatus.author || ''"
+                               x-text="volumeMetaCache[statusPanelVolume.dir]?.volume_author || bookStatus.author || '未知'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">章数</p>
+                            <p class="text-xs font-semibold text-gray-800"
+                               x-text="(statusPanelVolume.chapter_count ?? volumeMetaCache[statusPanelVolume.dir]?.chapters?.length ?? 0) + ' 章'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">已分析</p>
+                            <p class="text-xs font-semibold text-green-600"
+                               x-text="volumeAnalyzedCount + ' 章'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">待分析</p>
+                            <p class="text-xs font-semibold text-yellow-600"
+                               x-text="volumePendingCount + ' 章'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">失败</p>
+                            <p class="text-xs font-semibold"
+                               :class="volumeFailedCount > 0 ? 'text-red-600' : 'text-gray-800'"
+                               x-text="volumeFailedCount + ' 章'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">卷总结</p>
+                            <p class="text-xs font-semibold"
+                               :class="volumeMetaCache[statusPanelVolume.dir]?.volumes_summary ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="volumeMetaCache[statusPanelVolume.dir]?.volumes_summary ? '已生成' : '待生成'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">🗃️ 维度库</p>
+                            <p class="text-xs font-semibold"
+                               :class="volumeDimensionSynced ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="volumeDimensionSynced ? '已同步' : '待同步'"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-1.5 text-center">
+                            <p class="text-[10px] text-gray-500">🔍 向量库</p>
+                            <p class="text-xs font-semibold"
+                               :class="volumeVectorSynced ? 'text-green-600' : 'text-yellow-600'"
+                               x-text="volumeVectorSynced ? '已同步' : '待同步'"></p>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 卷总结快捷按钮（仅整书模式） -->
+                <template x-if="selectedBook && bookStatus && statusPanelMode === 'book' && (bookStatus.volumes || []).length > 0">
+                    <div class="pt-1.5 mt-1.5 border-t border-gray-100">
+                        <div class="text-xs text-gray-500 mb-1">📖 卷总结生成</div>
+                        <div class="flex flex-wrap gap-1">
+                            <template x-for="vol in bookStatus.volumes" :key="vol.dir">
+                                <button @click="summarizeVolume(vol)"
+                                        :disabled="isProcessing || vol.summary_status === 'generating'"
+                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors"
+                                        :class="{
+                                            'bg-blue-100 text-blue-700 hover:bg-blue-200': vol.summary_status === 'pending',
+                                            'bg-green-100 text-green-700': vol.summary_status === 'completed',
+                                            'bg-yellow-100 text-yellow-700 animate-pulse': vol.summary_status === 'generating'
+                                        }"
+                                        :title="`第${vol.id}卷 ${vol.title || ''}`"
+                                        x-text="vol.summary_status === 'pending' ? `${vol.id}卷·生成` : (vol.summary_status === 'completed' ? `${vol.id}卷✓` : `${vol.id}卷⟳`)">
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- ================= 右侧面板（2/3）：章节列表 / 分割预览 ================= -->
+        <div class="lg:flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl shadow-md border border-gray-100">
+
+            <!-- 右侧顶部：操作按钮 -->
+            <div class="p-3 border-b border-gray-200 shrink-0">
+                <div class="flex flex-wrap gap-3">
+                    <template x-if="selectedBook">
+                        <span class="px-3 py-1.5 text-sm text-gray-600 bg-gray-50 rounded-lg self-center">
+                            📚 <span x-text="selectedProject + ' / ' + selectedBook"></span>
+                        </span>
+                    </template>
+                    <button @click="showAnalysisConfirm(statusPanelMode)"
+                            :disabled="!selectedBook || analysisRunning || !hasSelectedBook"
+                            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        ⚡ 批量分析
+                    </button>
+                    <button @click="retryFailedAnalysis()"
+                            :disabled="!selectedBook || analysisRunning || getFailedCount() === 0"
+                            class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        🔄 分析自动重试
+                    </button>
+                    <button @click="openResplitDialog()"
+                            x-show="statusPanelMode === 'volume' && statusPanelVolume"
+                            :disabled="isProcessing"
+                            class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        🔄 重新分割 TXT
+                    </button>
+                </div>
+            </div>
+
+            <!-- 右侧中间：章节列表 / 分割预览 -->
+            <div class="flex-1 min-h-0 overflow-y-auto p-4">
+                <template x-if="!hasSelectedBook">
+                    <p class="text-gray-400 text-center py-16">请先在左侧选择书籍</p>
+                </template>
+
+                <!-- 空书（未上传 TXT）：显示上传入口 -->
+                <template x-if="hasSelectedBook && bookStatus && bookStatus.split_status === 'pending' && !bookStatus.preview">
+                    <div class="flex flex-col items-center justify-center py-16">
+                        <div class="text-5xl mb-4">📤</div>
+                        <p class="text-gray-600 font-medium mb-1">该书尚未上传源文件</p>
+                        <p class="text-gray-400 text-sm mb-6">上传 TXT 后可预览分卷结果，再填写卷名并确认分割</p>
+                        <button @click="openUploadDialog()"
+                                class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium">
+                            📤 上传 TXT 并预览分卷
+                        </button>
+                    </div>
+                </template>
+
+                <!-- 已上传待确认：显示分卷预览（卷信息在上传弹窗中填写，此处只读展示） -->
+                <template x-if="hasSelectedBook && bookStatus && bookStatus.preview">
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-sm font-medium text-yellow-800 bg-yellow-50 border border-yellow-200 px-3 py-1.5 rounded-lg">
+                                📋 分割预览 · 共 <span x-text="bookStatus.preview.total_chapters"></span> 章 ·
+                                <span x-text="bookStatus.preview.encoding"></span> 编码 ·
+                                <span x-text="formatNumber(bookStatus.preview.total_chars)"></span> 字
+                                —— 尚未写入磁盘，点击「确认分割」落盘
+                            </p>
+                        </div>
+
+                        <!-- 卷信息编辑：卷名/卷作者（确认分割前可自由编辑） -->
+                        <div class="mb-4 grid gap-2"
+                             :class="(bookStatus.preview.volumes_preview || []).length > 1 ? 'sm:grid-cols-2' : 'grid-cols-1'">
+                            <template x-for="(volPrev, vIdx) in (bookStatus.preview.volumes_preview || [])" :key="vIdx">
+                                <div class="border border-gray-200 rounded-lg p-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm font-semibold text-gray-700"
+                                              x-text="`第 ${volPrev.volume_number || (vIdx + 1)} 卷`"></span>
+                                        <span class="text-[11px] text-gray-400"
+                                              x-text="`${volPrev.chapter_count} 章 · ${formatNumber(volPrev.char_count)} 字`"></span>
+                                    </div>
+                                    <template x-if="volumeInfo.length > vIdx">
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">卷名</label>
+                                                <input type="text"
+                                                       x-model="volumeInfo[vIdx].name"
+                                                       :placeholder="`第 ${volPrev.volume_number || (vIdx + 1)} 卷`"
+                                                       class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                                                <template x-if="volPrev.suggested_title && volumeInfo[vIdx].name !== volPrev.suggested_title">
+                                                    <button @click="volumeInfo[vIdx].name = volPrev.suggested_title"
+                                                            class="mt-1 text-[11px] text-blue-600 hover:underline">
+                                                        💡 识别卷名：<span x-text="volPrev.suggested_title"></span>
+                                                    </button>
+                                                </template>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">卷作者</label>
+                                                <input type="text"
+                                                       x-model="volumeInfo[vIdx].author"
+                                                       :placeholder="selectedBookAuthor || '书作者'"
+                                                       class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- 确认分割按钮 -->
+                        <div class="mb-4">
+                            <button @click="confirmSplit()"
+                                    :disabled="isProcessing"
+                                    class="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium">
+                                ✓ 确认分割
+                            </button>
+                        </div>
+
+                        <!-- 章节预览表格 -->
+                        <table class="w-full">
+                            <colgroup>
+                                <col style="width: 60px;">
+                                <col style="width: 25%;">
+                                <col style="width: 100px;">
+                                <col style="width: auto;">
+                            </colgroup>
+                            <thead class="bg-gray-50 sticky top-0 z-10">
+                                <tr>
+                                    <th class="relative py-3 px-4 text-sm font-semibold text-gray-600">#</th>
+                                    <th class="relative py-3 px-4 text-sm font-semibold text-gray-600">章节名称</th>
+                                    <th class="relative text-right py-3 px-4 text-sm font-semibold text-gray-600">字数</th>
+                                    <th class="relative py-3 px-4 text-sm font-semibold text-gray-600">内容预览</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(chap, idx) in bookStatus.preview.chapters_preview" :key="idx">
+                                    <tr class="border-t border-gray-100 hover:bg-gray-50">
+                                        <td class="py-3 px-4 text-sm text-gray-500" x-text="idx + 1"></td>
+                                        <td class="py-3 px-4 text-sm text-gray-700" x-text="chap.chunk_name"></td>
+                                        <td class="py-3 px-4 text-sm text-right text-gray-600" x-text="formatNumber(chap.char_count)"></td>
+                                        <td class="py-3 px-4 text-sm text-gray-500 truncate" x-text="chap.preview"></td>
+                                    </tr>
+                                </template>
+                                <template x-if="bookStatus.preview.total_chapters > bookStatus.preview.chapters_preview.length">
+                                    <tr class="border-t border-gray-100">
+                                        <td colspan="4" class="py-3 px-4 text-sm text-gray-400 text-center">
+                                            仅显示前 <span x-text="bookStatus.preview.chapters_preview.length"></span> 章预览，其余章节将在确认分割后显示
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </template>
+
+                <!-- 已分割但无章节 -->
+                <template x-if="hasSelectedBook && (!bookStatus || (!bookStatus.preview && bookStatus.split_status !== 'pending')) && chapters.length === 0">
+                    <p class="text-gray-400 text-center py-16">该书暂无章节，请先分割</p>
+                </template>
+
+                <!-- 已分割：章节列表 -->
+                <template x-if="hasSelectedBook && (!bookStatus || !bookStatus.preview) && chapters.length > 0">
+                    <table class="w-full">
+                        <colgroup>
+                            <col style="width: 60px;">
+                            <col style="width: 25%;">
+                            <col style="width: 100px;">
+                            <col style="width: 120px;">
+                            <col style="width: 120px;">
+                        </colgroup>
+                        <thead class="bg-gray-50 sticky top-0 z-10">
+                            <tr>
+                                <th class="relative py-3 px-4 text-sm font-semibold text-gray-600">#</th>
+                                <th class="relative py-3 px-4 text-sm font-semibold text-gray-600">章节名称</th>
+                                <th class="relative text-right py-3 px-4 text-sm font-semibold text-gray-600">字数</th>
+                                <th class="relative py-3 px-4 text-sm font-semibold text-gray-600">分析状态</th>
+                                <th class="relative text-right py-3 px-4 text-sm font-semibold text-gray-600">结果字数</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(chap, idx) in chapters" :key="chap.id">
+                                <tr class="border-t border-gray-100 hover:bg-gray-50">
+                                    <td class="py-3 px-4 text-sm text-gray-500" x-text="idx + 1"></td>
+                                    <td class="py-3 px-4 text-sm text-gray-700"
+                                        :title="chap.title + '\n' + chap.content_preview"
+                                        x-text="chap.title"></td>
+                                    <td class="py-3 px-4 text-sm text-right text-gray-600" x-text="formatNumber(chap.char_count)"></td>
+                                    <td class="py-3 px-4 text-sm">
+                                        <span class="px-2 py-1 rounded-full text-xs font-medium"
+                                              :class="{
+                                                  'bg-gray-100 text-gray-700': chap.status === 'pending',
+                                                  'bg-red-100 text-red-700': chap.status === 'failed',
+                                                  'bg-green-100 text-green-700': chap.status === 'processed' || chap.status === 'completed'
+                                              }"
+                                              x-text="chap.status === 'pending' ? '未分析' : (chap.status === 'failed' ? '分析失败' : '已分析')">
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 text-sm text-right text-gray-600"
+                                        x-text="chap.result_length ? formatNumber(chap.result_length) : '-'"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </template>
+            </div>
+
+
+
+    </div>
+
+    <!-- ================= 弹窗：新建项目 ================= -->
+    <div x-show="showCreateProjectDialog" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-96">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">➕ 新建项目</h3>
+            <input type="text" x-model="newProjectName" placeholder="请输入项目名称"
+                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4">
+            <div class="flex justify-end gap-3">
+                <button @click="showCreateProjectDialog = false"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="createNewProject()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：新建书籍（仅书名 + 作者） ================= -->
+    <div x-show="showCreateBookDialog" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-[420px]">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">📚 新建书籍</h3>
+            <p class="text-xs text-gray-400 mb-4">先创建空书，之后在拆书界面上传 TXT 并填写卷名</p>
+            <div class="space-y-3 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">书名 *</label>
+                    <input type="text" x-model="newBookInfo.name" placeholder="请输入书名"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">作者 *</label>
+                    <input type="text" x-model="newBookInfo.author" placeholder="未知可填「佚名」"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button @click="showCreateBookDialog = false"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="createNewBook()"
+                        :disabled="!newBookInfo.name.trim() || !newBookInfo.author.trim()"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：上传 TXT 预览分卷（卷信息在右侧预览区填写） ================= -->
+    <div x-show="showUploadDialog" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-[480px]">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">📤 上传 TXT 并预览分卷</h3>
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors mb-4"
+                 @dragover.prevent="dragOver = true"
+                 @dragleave.prevent="dragOver = false"
+                 @drop.prevent="handleDrop($event)"
+                 :class="dragOver ? 'bg-blue-50 border-blue-400' : ''">
+                <input type="file" @change="handleBookFileSelect" accept=".txt" hidden id="bookFileInput">
+                <label for="bookFileInput" class="cursor-pointer">
+                    <svg class="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <p class="mt-2 text-gray-600 text-sm" x-text="uploadFile ? `已选择：${uploadFile.name}` : '点击或拖拽上传'"></p>
+                    <p class="text-xs text-gray-500 mt-1">仅支持 TXT 格式 · 上传后在右侧填写卷信息并确认分割</p>
+                </label>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button @click="closeUploadDialog()"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="uploadAndPreview()"
+                        :disabled="!uploadFile || isProcessing"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span x-show="!isProcessing">上传并预览</span>
+                    <span x-show="isProcessing">解析中...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：编辑卷名 ================= -->
+    <div x-show="showRenameVolumeDialog" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-96">
+            <h3 class="text-xl font-bold text-gray-800 mb-2">✏️ 编辑卷名</h3>
+            <p class="text-xs text-gray-400 mb-4" x-text="`当前：${editingVolume.currentLabel}`"></p>
+            <p class="text-xs text-gray-500 mb-3">⚠️ 确认后将同时重命名卷目录（vol_XXX_旧名 → vol_XXX_新名）并更新所有元数据</p>
+            <input type="text" x-model="editingVolume.newName" placeholder="请输入新卷名" maxlength="30"
+                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4">
+            <div class="flex justify-end gap-3">
+                <button @click="showRenameVolumeDialog = false"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="saveVolumeRename()"
+                        :disabled="!editingVolume.newName.trim()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：批量分析确认 ================= -->
+    <div x-show="showAnalysisConfirmModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-[620px] max-h-[85vh] overflow-hidden flex flex-col">
+            <h3 class="text-xl font-bold text-gray-800 mb-2">
+                ⚡ 
+                <template x-if="analysisConfirmData?.scope === 'volume'">
+                    <span>单卷分析任务确认</span>
+                </template>
+                <template x-if="analysisConfirmData?.scope === 'book' || !analysisConfirmData?.scope">
+                    <span>批量分析任务确认</span>
+                </template>
+            </h3>
+            <p class="text-xs text-gray-500 mb-4">
+                <template x-if="analysisConfirmData?.scope === 'volume'">
+                    <span>即将对当前选中的卷进行待处理章节分析</span>
+                </template>
+                <template x-if="analysisConfirmData?.scope === 'book' || !analysisConfirmData?.scope">
+                    <span>勾选要分析的卷，并选择执行模式</span>
+                </template>
+            </p>
+                
+            <!-- 信息概览 -->
+            <template x-if="analysisConfirmData">
+                <div class="mb-4 p-3 bg-blue-50 rounded-lg">
+                    <p class="text-sm text-gray-700">
+                        <span class="font-semibold text-gray-900" x-text="analysisConfirmData.book_name"></span>
+                        <template x-if="analysisConfirmData?.scope === 'volume'">
+                            <span> - 第<span x-text="analysisConfirmData.volumes[0]?.id ?? 1">1</span>卷</span>
+                        </template>
+                        <template x-if="analysisConfirmData?.scope === 'book' || !analysisConfirmData?.scope">
+                            <span> - 已选 <span class="font-semibold" x-text="selectedVolDirs.length"></span> / <span x-text="analysisConfirmData.total_volumes"></span> 卷</span>
+                        </template>
+                    </p>
+                    <div class="mt-2 grid grid-cols-3 gap-2 text-xs">
+                        <div class="flex items-center gap-1">
+                            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            <span class="text-gray-600">总计:</span>
+                            <span class="font-bold text-gray-800" x-text="analysisConfirmData.total_chapters || 0"></span>章
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <svg class="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                            <span class="text-gray-600">待分析:</span>
+                            <span class="font-bold text-orange-600" x-text="analysisConfirmData.pending_chapters || 0"></span>章
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                            <span class="text-gray-600">失败:</span>
+                            <span class="font-bold text-red-600" x-text="analysisConfirmData.failed_chapters || 0"></span>章
+                        </div>
+                    </div>
+                </div>
+            </template>
+    
+            <!-- 卷列表（可滚动，book 模式带勾选） -->
+            <div class="flex-1 overflow-y-auto max-h-64 mb-3 space-y-2">
+                <template x-for="(vol, idx) in (analysisConfirmData?.volumes || [])" :key="idx">
+                    <div class="border rounded-lg p-3 transition-colors"
+                         :class="analysisConfirmData?.scope === 'book' && selectedVolDirs.includes(vol.dir) ? 'border-purple-400 bg-purple-50' : 'border-gray-200'">
+                        <div class="flex items-start gap-3">
+                            <!-- 勾选框（仅 book 模式显示） -->
+                            <template x-if="analysisConfirmData?.scope === 'book' || !analysisConfirmData?.scope">
+                                <input type="checkbox" 
+                                       :value="vol.dir"
+                                       x-model="selectedVolDirs"
+                                       class="mt-1 w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 cursor-pointer">
+                            </template>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-gray-800">
+                                    <span class="inline-flex items-center justify-center w-6 h-6 mr-2 text-xs font-bold text-white bg-purple-500 rounded-full" 
+                                          x-text="'第' + (vol.id ?? idx + 1) + '卷'"></span>
+                                    <span x-text="vol.title || '未命名卷'"></span>
+                                </p>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    总计:<span x-text="vol.total_chapters || 0"></span>章 · 
+                                    已分析:<span class="text-green-600 font-medium" x-text="vol.completed_chapters || 0"></span>章 · 
+                                    <span class="text-orange-600 font-medium">
+                                        待分析:<span x-text="(vol.total_chapters || 0) - (vol.completed_chapters || 0) - (vol.failed_chapters || 0)"></span>章
+                                    </span> · 
+                                    <span class="text-red-600 font-medium">
+                                        失败:<span x-text="vol.failed_chapters || 0"></span>章
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- 全选/反选（仅 book 模式） -->
+            <template x-if="analysisConfirmData?.scope === 'book' || !analysisConfirmData?.scope">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex gap-2">
+                        <button @click="selectAllVolumes()" class="text-xs text-purple-600 hover:underline">全选</button>
+                        <button @click="selectedVolDirs = []" class="text-xs text-gray-500 hover:underline">全不选</button>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- 执行模式选择（仅 book 模式） -->
+            <template x-if="analysisConfirmData?.scope === 'book' || !analysisConfirmData?.scope">
+                <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <p class="text-xs font-semibold text-gray-700 mb-2">执行模式</p>
+                    <div class="flex items-center gap-4">
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="radio" name="concurrencyMode" value="sequential" x-model="concurrencyMode" class="w-3.5 h-3.5 text-purple-600">
+                            <span class="text-sm text-gray-700">顺序执行</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="radio" name="concurrencyMode" value="concurrent" x-model="concurrencyMode" class="w-3.5 h-3.5 text-purple-600">
+                            <span class="text-sm text-gray-700">并发执行</span>
+                        </label>
+                        <template x-if="concurrencyMode === 'concurrent'">
+                            <div class="flex items-center gap-1.5 ml-2">
+                                <span class="text-xs text-gray-500">并发数:</span>
+                                <input type="number" x-model.number="maxConcurrent" min="2" max="5"
+                                       class="w-14 px-1.5 py-0.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500">
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+    
+            <!-- 操作按钮 -->
+            <div class="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                <button @click="closeAnalysisConfirm()"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="confirmBookAnalysis()"
+                        :disabled="!analysisConfirmData || (analysisConfirmData.scope === 'book' && selectedVolDirs.length === 0)"
+                        class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    ⚡ 开始批量分析
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：编辑书籍 ================= -->
+    <div x-show="showEditBookDialog" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-96">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">✏️ 编辑书籍</h3>
+            <div class="space-y-3 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">书名</label>
+                    <input type="text" :value="editingBook.name" disabled
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-400">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">作者 *</label>
+                    <input type="text" x-model="editingBook.author" maxlength="30"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button @click="showEditBookDialog = false"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="saveBookEdit()"
+                        :disabled="!editingBook.author.trim()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 弹窗：重新分割 TXT（使用 book_meta 存档的源文件） ================= -->
+    <div x-show="showResplitDialog" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-[480px]">
+            <h3 class="text-xl font-bold text-gray-800 mb-2">🔄 重新分割 TXT</h3>
+            <p class="text-xs text-gray-400 mb-4">使用存档源文件重新生成分割预览，确认后覆盖写入卷目录（无需重新上传）</p>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">源文件（来自 book_meta.source_files）</label>
+                <select x-model="resplitSourceFile"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                    <template x-for="f in (bookStatus?.source_files || [])" :key="f">
+                        <option :value="f" x-text="f.split('/').pop()"></option>
+                    </template>
+                </select>
+                <p class="text-[11px] text-gray-400 mt-1"
+                   x-text="statusPanelVolume?.name ? `当前卷：第 ${statusPanelVolume.id ?? ''} 卷 ${statusPanelVolume.name}` : ''"></p>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button @click="showResplitDialog = false"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">取消</button>
+                <button @click="resplitPreview()"
+                        :disabled="!resplitSourceFile || isProcessing"
+                        class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span x-show="!isProcessing">生成预览</span>
+                    <span x-show="isProcessing">解析中...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function splittingWorkshop() {
+    return {
+        // ========== 数据模型 ==========
+        projects: [],                    // 项目列表（完整嵌套结构）
+        selectedProject: '',             // 当前选中的项目
+        selectedBook: '',                // 当前选中的书籍
+        selectedBookAuthor: '',          // 选中书籍的作者（状态面板显示用）
+        bookStatus: null,                // 选中书籍的拆分/分析状态
+        chapters: [],                    // 章节列表
+        volumeInfo: [],                  // 分割预览时各卷信息与作者 [{name, author}, ...]
+
+        // ========== 状态面板选择 ==========
+        statusPanelMode: 'book',         // 状态面板模式：book=整书汇总，volume=单卷详情
+        statusPanelVolume: null,         // 当前选中的卷（statusPanelMode=volume 时）
+        volumeMetaCache: {},             // 卷元数据缓存 {volDir: meta}
+
+        // ========== 重新分割 TXT（使用 book_meta 存档的 source_files） ==========
+        showResplitDialog: false,        // 重新分割弹窗
+        resplitSourceFile: '',           // 重新分割选中的源文件
+        isResplitMode: false,            // 当前预览是否为重新分割模式（确认时 overwrite=true）
+
+        // ========== 树展开状态 ==========
+        expandedProjects: [],            // 展开的项目名列表
+        expandedBooks: [],               // 展开的书名列表（跨项目共享，书名唯一性由用户保证）
+
+        // ========== 拖拽排序状态 ==========
+        isDragging: false,
+        dragProject: '',
+        dragBook: '',
+        dragIndex: -1,
+        dragOverIndex: -1,
+
+        // ========== 状态变量 ==========
+        isProcessing: false,
+        analysisRunning: false,
+        hasSelectedBook: false,
+        dragOver: false,
+        showCreateProjectDialog: false,
+        showCreateBookDialog: false,
+        showUploadDialog: false,
+        showRenameVolumeDialog: false,
+        showEditBookDialog: false,
+        newProjectName: '',
+        newBookInfo: { name: '', author: '' },
+        uploadFile: null,
+        editingVolume: { project: '', book: '', dir: '', currentLabel: '', newName: '' },
+        editingBook: { name: '', author: '' },
+
+        // ========== 进度统计 ==========
+        analysisProgress: 0,
+        stats: { total_chapters: 0, completed_chapters: 0, failed_chapters: 0 },
+        
+        // ========== 分析确认弹窗 ==========
+        showAnalysisConfirmModal: false,
+        analysisConfirmData: null,
+        selectedVolDirs: [],       // 勾选的卷目录名列表
+        concurrencyMode: 'sequential',  // 'sequential' | 'concurrent'
+        maxConcurrent: 3,          // 并发数（2~5）
+
+        // ========== 计算属性 ==========
+        get totalBookChapters() {
+            return (this.bookStatus?.volumes || []).reduce((s, v) => s + (v.total_chapters || 0), 0);
+        },
+
+        // 整书总字数（前端聚合各卷）
+        get totalBookChars() {
+            return (this.bookStatus?.volumes || []).reduce((s, v) => s + (v.total_chars || 0), 0);
+        },
+
+        // 卷总结完成数
+        get completedSummaryCount() {
+            return (this.bookStatus?.volumes || []).filter(v => v.summary_status === 'completed').length;
+        },
+
+        // 维度库同步状态：所有卷已分析完成即视为已同步
+        get dimensionLibSynced() {
+            const vols = this.bookStatus?.volumes || [];
+            if (vols.length === 0) return false;
+            return vols.every(v => (v.completed_chapters || 0) >= (v.total_chapters || 0) && (v.total_chapters || 0) > 0);
+        },
+
+        // 向量库同步状态：与维度库同步逻辑一致（分析完成即入库）
+        get vectorLibSynced() {
+            return this.dimensionLibSynced;
+        },
+
+        // 单卷详情：已分析章数
+        get volumeAnalyzedCount() {
+            const meta = this.statusPanelVolume ? this.volumeMetaCache[this.statusPanelVolume.dir] : null;
+            if (!meta?.chapters) return this.statusPanelVolume?.completed_chapters || 0;
+            return meta.chapters.filter(c => c.status === 'processed' || c.status === 'completed').length;
+        },
+
+        // 单卷详情：待分析章数
+        get volumePendingCount() {
+            const meta = this.statusPanelVolume ? this.volumeMetaCache[this.statusPanelVolume.dir] : null;
+            if (!meta?.chapters) {
+                const total = this.statusPanelVolume?.total_chapters || 0;
+                return total - (this.statusPanelVolume?.completed_chapters || 0);
+            }
+            return meta.chapters.filter(c => c.status === 'pending').length;
+        },
+
+        // 单卷详情：失败章数
+        get volumeFailedCount() {
+            const meta = this.statusPanelVolume ? this.volumeMetaCache[this.statusPanelVolume.dir] : null;
+            if (!meta?.chapters) return this.statusPanelVolume?.failed_chapters || 0;
+            return meta.chapters.filter(c => c.status === 'failed').length;
+        },
+
+        // 单卷维度库同步状态
+        get volumeDimensionSynced() {
+            if (!this.statusPanelVolume) return false;
+            return this.volumePendingCount === 0 && this.volumeFailedCount === 0 &&
+                   (this.volumeAnalyzedCount > 0);
+        },
+
+        // 单卷向量库同步状态
+        get volumeVectorSynced() {
+            return this.volumeDimensionSynced;
+        },
+
+        // ========== 初始化 ==========
+        async loadProjects() {
+            try {
+                const res = await fetch('/api/projects');
+                if (res.ok) {
+                    this.projects = await res.json();
+                    // 默认展开第一个项目
+                    if (this.projects.length && !this.expandedProjects.length) {
+                        this.expandedProjects.push(this.projects[0].project_name);
+                    }
+                }
+            } catch (err) {
+                console.error('加载项目列表失败:', err);
+            }
+        },
+
+        // ========== 树交互 ==========
+        toggleProject(projectName) {
+            const idx = this.expandedProjects.indexOf(projectName);
+            if (idx >= 0) {
+                this.expandedProjects.splice(idx, 1);
+            } else {
+                this.expandedProjects.push(projectName);
+            }
+            if (this.selectedProject !== projectName) {
+                this.selectedProject = projectName;
+            }
+        },
+
+        toggleBook(bookName) {
+            const idx = this.expandedBooks.indexOf(bookName);
+            if (idx >= 0) {
+                this.expandedBooks.splice(idx, 1);
+            } else {
+                this.expandedBooks.push(bookName);
+            }
+        },
+
+        selectBook(projectName, book) {
+            this.selectedProject = projectName;
+            this.selectedBook = book.book_name;
+            this.selectedBookAuthor = book.author || '';
+            this.hasSelectedBook = true;
+            this.statusPanelMode = 'book';  // 选中书时切换为整书汇总模式
+            this.statusPanelVolume = null;  // 重置单卷选中状态
+            // 自动展开该书
+            if (!this.expandedBooks.includes(book.book_name)) {
+                this.expandedBooks.push(book.book_name);
+            }
+            this.loadSelectedBookStatus();
+            // 加载全书章节（非单卷模式）
+            this.loadChapters();
+        },
+
+        // 点击卷节点：切换状态面板为单卷详情模式
+        async selectVolumeNode(projectName, book, vol) {
+            // 若当前书未选中，先选中
+            if (this.selectedBook !== book.book_name || this.selectedProject !== projectName) {
+                this.selectBook(projectName, book);
+            }
+            this.statusPanelMode = 'volume';
+            this.statusPanelVolume = vol;
+            // 确保书籍状态已加载（source_files 在其中返回）
+            if (!this.bookStatus?.source_files) {
+                await this.loadSelectedBookStatus();
+            }
+            // 加载该卷的元数据（带缓存）
+            if (!this.volumeMetaCache[vol.dir]) {
+                try {
+                    const volMetaPath = `/workspace/projects/${encodeURIComponent(projectName)}/${encodeURIComponent(book.book_name)}/${vol.dir}/volume_meta.json`;
+                    const res = await fetch(volMetaPath);
+                    if (res.ok) {
+                        this.volumeMetaCache[vol.dir] = await res.json();
+                    }
+                } catch (e) {
+                    console.error('加载卷元数据失败:', e);
+                }
+            }
+            // 刷新章节列表（只显示该卷）
+            await this.loadChapters();
+        },
+
+        // ========== 重新分割 TXT（使用 book_meta 存档的源文件） ==========
+        // 匹配当前卷对应的源文件：优先按卷名包含匹配，其次按卷顺序索引
+        getResplitDefaultFile() {
+            const files = this.bookStatus?.source_files || [];
+            if (!files.length) return '';
+            const volName = this.statusPanelVolume?.name || '';
+            if (volName) {
+                const byName = files.find(f => f.includes(volName));
+                if (byName) return byName;
+            }
+            const vols = this.bookStatus?.volumes || [];
+            const idx = vols.findIndex(v => v.dir === this.statusPanelVolume?.dir);
+            if (idx >= 0 && files[idx]) return files[idx];
+            return files[0];
+        },
+
+        openResplitDialog() {
+            const files = this.bookStatus?.source_files || [];
+            if (!files.length) {
+                alert('该书没有存档的源文件（book_meta.source_files 为空），请使用「上传 TXT」');
+                return;
+            }
+            this.resplitSourceFile = this.getResplitDefaultFile();
+            this.showResplitDialog = true;
+        },
+
+        async resplitPreview() {
+            if (!this.resplitSourceFile) {
+                alert('请选择源文件');
+                return;
+            }
+            try {
+                this.isProcessing = true;
+                const res = await fetch(`/api/books/${encodeURIComponent(this.selectedProject)}/${encodeURIComponent(this.selectedBook)}/resplit-preview`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ source_file: this.resplitSourceFile })
+                });
+                if (res.ok) {
+                    this.isResplitMode = true;   // 确认分割时 overwrite=true 覆盖已有卷
+                    this.showResplitDialog = false;
+                    await this.loadSelectedBookStatus();
+                } else {
+                    const err = await res.json();
+                    alert('重新分割失败：' + (err.detail || '未知错误'));
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            } finally {
+                this.isProcessing = false;
+            }
+        },
+
+        // ========== 拖拽排序 ==========
+        isDraggingSameBook(projectName, bookName) {
+            return this.isDragging && this.dragProject === projectName && this.dragBook === bookName;
+        },
+
+        onDragStart(event, projectName, book, index) {
+            this.isDragging = true;
+            this.dragProject = projectName;
+            this.dragBook = book.book_name;
+            this.dragIndex = index;
+            event.dataTransfer.effectAllowed = 'move';
+        },
+
+        onDragOver(event) {
+            // 允许 drop
+        },
+
+        onDrop(event, projectName, book, targetIndex) {
+            if (!this.isDraggingSameBook(projectName, book.book_name)) return;
+            if (this.dragIndex === targetIndex) {
+                this.resetDragState();
+                return;
+            }
+
+            // 本地先调整顺序（乐观更新）
+            const vols = book.volumes;
+            const [moved] = vols.splice(this.dragIndex, 1);
+            vols.splice(targetIndex, 0, moved);
+            this.resetDragState();
+
+            // 持久化到后端
+            this.persistVolumeOrder(projectName, book);
+        },
+
+        onDragEnd() {
+            this.resetDragState();
+        },
+
+        resetDragState() {
+            this.isDragging = false;
+            this.dragProject = '';
+            this.dragBook = '';
+            this.dragIndex = -1;
+            this.dragOverIndex = -1;
+        },
+
+        async persistVolumeOrder(projectName, book) {
+            try {
+                const dirs = (book.volumes || []).map(v => v.dir);
+                const res = await fetch(`/api/books/${encodeURIComponent(projectName)}/${encodeURIComponent(book.book_name)}/volumes/reorder`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ dirs })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert('排序失败：' + (err.detail || '未知错误'));
+                    await this.loadProjects();  // 回滚 UI
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+                await this.loadProjects();
+            }
+        },
+
+        // ========== 书籍状态 ==========
+        async loadSelectedBookStatus() {
+            if (!this.selectedProject || !this.selectedBook) {
+                this.chapters = [];
+                return;
+            }
+
+            try {
+                const queryParams = new URLSearchParams({
+                    project: this.selectedProject,
+                    book: this.selectedBook
+                });
+
+                const res = await fetch(`/api/book/status?${queryParams}`);
+                if (res.ok) {
+                    this.bookStatus = await res.json();
+
+                    // 初始化卷信息与作者输入（识别卷名/“第 X 卷”预填；保留用户已有编辑）
+                    if (this.bookStatus.preview?.volumes_preview) {
+                        const volsPrev = this.bookStatus.preview.volumes_preview;
+                        if (this.volumeInfo.length !== volsPrev.length) {
+                            this.volumeInfo = volsPrev.map((v, idx) => ({
+                                name: v.suggested_title || `第 ${v.volume_number || (idx + 1)} 卷`,
+                                author: this.selectedBookAuthor || ''
+                            }));
+                        }
+                    } else {
+                        this.volumeInfo = [];
+                    }
+
+                    // 标记各卷的总结状态（复用 volumeMetaCache，避免重复请求）
+                    if (this.bookStatus.volumes && this.bookStatus.volumes.length > 0) {
+                        for (let vol of this.bookStatus.volumes) {
+                            if (!this.volumeMetaCache[vol.dir]) {
+                                const volMetaPath = `/workspace/projects/${encodeURIComponent(this.selectedProject)}/${encodeURIComponent(this.selectedBook)}/${vol.dir}/volume_meta.json`;
+                                try {
+                                    const metaRes = await fetch(volMetaPath);
+                                    if (metaRes.ok) {
+                                        this.volumeMetaCache[vol.dir] = await metaRes.json();
+                                    }
+                                } catch (e) {
+                                    console.error('加载卷元数据失败:', e);
+                                }
+                            }
+                            const volMeta = this.volumeMetaCache[vol.dir];
+                            vol.summary_status = volMeta?.volumes_summary ? 'completed' : 'pending';
+                        }
+                    }
+
+                    this.hasSelectedBook = true;
+
+                    // 已分割且包含卷：加载章节列表
+                    if (this.bookStatus.split_status !== 'pending' && (this.bookStatus.volumes || []).length > 0) {
+                        await this.loadChapters();
+                    } else {
+                        this.chapters = [];
+                    }
+
+                    if (this.bookStatus.analysis_progress >= 80) {
+                        await this.loadAnalysisStats();
+                    }
+                } else {
+                    this.bookStatus = null;
+                    this.hasSelectedBook = false;
+                }
+            } catch (err) {
+                console.error('加载书籍状态失败:', err);
+            }
+        },
+
+        async loadChapters() {
+            try {
+                const queryParams = new URLSearchParams({
+                    project: this.selectedProject,
+                    book: this.selectedBook
+                });
+                // 如果当前是单卷模式，增加 volume 参数过滤
+                if (this.statusPanelMode === 'volume' && this.statusPanelVolume?.dir) {
+                    queryParams.append('volume', this.statusPanelVolume.dir);
+                }
+                const res = await fetch(`/api/chapters?${queryParams}`);
+                if (res.ok) {
+                    this.chapters = await res.json();
+                }
+            } catch (err) {
+                console.error('加载章节列表失败:', err);
+            }
+        },
+
+        async loadAnalysisStats() {
+            if (this.bookStatus?.volumes?.length) {
+                const vols = this.bookStatus.volumes;
+                this.stats.total_chapters = vols.reduce((s, v) => s + (v.total_chapters || 0), 0);
+                this.stats.completed_chapters = vols.reduce((s, v) => s + (v.completed_chapters || 0), 0);
+                this.stats.failed_chapters = vols.reduce((s, v) => s + (v.failed_chapters || 0), 0);
+            }
+        },
+
+        // ========== 项目操作 ==========
+        openCreateProjectDialog() {
+            this.showCreateProjectDialog = true;
+            this.newProjectName = '';
+        },
+
+        async createNewProject() {
+            if (!this.newProjectName.trim()) {
+                alert('请输入项目名称');
+                return;
+            }
+            try {
+                const res = await fetch('/api/projects', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: this.newProjectName.trim()})
+                });
+                if (res.ok) {
+                    this.showCreateProjectDialog = false;
+                    await this.loadProjects();
+                    this.selectedProject = this.newProjectName.trim();
+                    if (!this.expandedProjects.includes(this.selectedProject)) {
+                        this.expandedProjects.push(this.selectedProject);
+                    }
+                } else {
+                    const err = await res.json();
+                    alert('创建失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            }
+        },
+
+        // ========== 书籍操作 ==========
+        openCreateBookDialog() {
+            if (!this.selectedProject) {
+                alert('请先选择项目');
+                return;
+            }
+            this.newBookInfo = { name: '', author: '' };
+            this.showCreateBookDialog = true;
+        },
+
+        async createNewBook() {
+            if (!this.newBookInfo.name.trim() || !this.newBookInfo.author.trim()) {
+                alert('请填写书名和作者');
+                return;
+            }
+            try {
+                const res = await fetch('/api/books', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        project: this.selectedProject,
+                        book: this.newBookInfo.name.trim(),
+                        author: this.newBookInfo.author.trim()
+                    })
+                });
+                if (res.ok) {
+                    this.showCreateBookDialog = false;
+                    await this.loadProjects();
+                    // 自动选中新书
+                    const newBookName = this.newBookInfo.name.trim();
+                    const project = this.projects.find(p => p.project_name === this.selectedProject);
+                    const book = project?.books?.find(b => b.book_name === newBookName);
+                    if (book) this.selectBook(this.selectedProject, book);
+                } else {
+                    const err = await res.json();
+                    alert('创建失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            }
+        },
+
+        openEditBookDialog(book) {
+            this.editingBook = { name: book.book_name, author: book.author || '' };
+            this.showEditBookDialog = true;
+        },
+
+        async saveBookEdit() {
+            try {
+                const res = await fetch(`/api/books/${encodeURIComponent(this.selectedProject)}/${encodeURIComponent(this.editingBook.name)}/edit`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ author: this.editingBook.author.trim() })
+                });
+                if (res.ok) {
+                    this.showEditBookDialog = false;
+                    await this.loadProjects();
+                    if (this.selectedBook === this.editingBook.name) {
+                        this.selectedBookAuthor = this.editingBook.author.trim();
+                    }
+                } else {
+                    const err = await res.json();
+                    alert('保存失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            }
+        },
+
+        // ========== 上传与分割 ==========
+        openUploadPreviewDialog(book) {
+            // 从书节点打开上传对话框
+            this.uploadFile = null;
+            this.dragOver = false;
+            // 如果还没有选择项目，显示错误
+            if (!this.selectedProject) {
+                alert('请先选择一个项目');
+                return;
+            }
+            // 确保选中了这本书
+            if (this.selectedBook !== book.book_name) {
+                this.selectBook(this.selectedProject, book);
+            }
+            this.showUploadDialog = true;
+        },
+
+        openUploadDialog() {
+            this.uploadFile = null;
+            this.dragOver = false;
+            this.showUploadDialog = true;
+        },
+
+        closeUploadDialog() {
+            this.showUploadDialog = false;
+            this.uploadFile = null;
+            const input = document.getElementById('bookFileInput');
+            if (input) input.value = '';
+        },
+
+        handleDrop(event) {
+            this.dragOver = false;
+            const file = event.dataTransfer.files[0];
+            if (file && (file.type === 'text/plain' || file.name.endsWith('.txt'))) {
+                this.uploadFile = file;
+            } else {
+                alert('请上传 TXT 格式文件');
+            }
+        },
+
+        handleBookFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) this.uploadFile = file;
+        },
+
+        async uploadAndPreview() {
+            if (!this.uploadFile) {
+                alert('请先选择 TXT 文件');
+                return;
+            }
+            this.isResplitMode = false;   // 新上传为首次分割模式
+            const formData = new FormData();
+            formData.append('file', this.uploadFile);
+            formData.append('project', this.selectedProject);
+            formData.append('book', this.selectedBook);
+
+            try {
+                this.isProcessing = true;
+                const res = await fetch('/api/books/upload-preview', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (res.ok) {
+                    // 刷新书籍状态（获取 pending_file_id 与预览；volumeInfo 在其中初始化）
+                    await this.loadSelectedBookStatus();
+                    // 关闭弹窗：卷信息填写与确认分割在右侧预览区完成
+                    this.closeUploadDialog();
+                } else {
+                    const err = await res.json();
+                    alert('上传失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            } finally {
+                this.isProcessing = false;
+            }
+        },
+
+        async confirmSplit(silent = false) {
+            if (!this.selectedBook || !this.bookStatus?.pending_file_id) {
+                alert('没有待分割的书籍文件，请先上传 TXT');
+                return false;
+            }
+
+            const total = this.bookStatus.preview?.total_chapters ?? '?';
+            const overwriteHint = this.isResplitMode ? '\n⚠️ 重新分割模式：将覆盖同名卷目录！' : '';
+            if (!silent && !confirm(`确认将《${this.selectedBook}》共 ${total} 章分割写入磁盘？${overwriteHint}`)) {
+                return false;
+            }
+
+            // 收集各卷信息和作者（按预览顺序）
+            const volCount = (this.bookStatus.preview?.volumes_preview || []).length;
+            const volumeData = [];
+            for (let i = 0; i < volCount; i++) {
+                volumeData.push({
+                    name: (this.volumeInfo[i]?.name || '').trim(),
+                    author: (this.volumeInfo[i]?.author || '').trim()
+                });
+            }
+
+            try {
+                this.isProcessing = true;
+                const res = await fetch(`/api/split/${this.bookStatus.pending_file_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        project: this.selectedProject,
+                        book: this.selectedBook,
+                        author: this.selectedBookAuthor || '佚名',
+                        overwrite: this.isResplitMode,
+                        volumes_data: volumeData
+                    })
+                });
+
+                if (res.ok) {
+                    const result = await res.json();
+                    alert(`分割完成！${result.message}`);
+                    this.isResplitMode = false;     // 退出重新分割模式
+                    this.volumeMetaCache = {};          // 卷结构已变化，清空元数据缓存
+                    this.statusPanelMode = 'book';      // 回到整书汇总视图
+                    this.statusPanelVolume = null;
+                    await this.loadProjects();
+                    await this.loadSelectedBookStatus();
+                    return true;
+                } else {
+                    const err = await res.json();
+                    alert('分割失败：' + err.detail);
+                    return false;
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+                return false;
+            } finally {
+                this.isProcessing = false;
+            }
+        },
+
+        // ========== 卷名编辑 ==========
+        openRenameVolumeDialog(vol, vIdx) {
+            if (!this.selectedProject || !this.selectedBook) {
+                alert('请先选择项目与书籍');
+                return;
+            }
+            this.editingVolume = {
+                project: this.selectedProject,
+                book: this.selectedBook,
+                dir: vol.dir,
+                currentLabel: vol.name ? `第${vIdx + 1}卷 · ${vol.name}` : `第${vIdx + 1}卷（未命名）`,
+                newName: vol.name || ''
+            };
+            this.showRenameVolumeDialog = true;
+        },
+
+        async saveVolumeRename() {
+            const { project, book, dir, newName } = this.editingVolume;
+            if (!newName.trim()) {
+                alert('卷名不能为空');
+                return;
+            }
+            try {
+                const res = await fetch(`/api/books/${encodeURIComponent(project)}/${encodeURIComponent(book)}/volumes/rename`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ dir, name: newName.trim() })
+                });
+                if (res.ok) {
+                    this.showRenameVolumeDialog = false;
+                    await this.loadProjects();
+                    if (this.selectedBook === book) {
+                        await this.loadSelectedBookStatus();
+                    }
+                } else {
+                    const err = await res.json();
+                    alert('保存失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            }
+        },
+
+        // ========== 分析操作 ==========
+        async showAnalysisConfirm(scope) {
+            if (!this.selectedBook) {
+                alert('请先选择书籍');
+                return;
+            }
+            
+            try {
+                // 加载当前书籍的详细状态
+                const queryParams = new URLSearchParams({
+                    project: this.selectedProject,
+                    book: this.selectedBook
+                });
+                const res = await fetch(`/api/book/status?${queryParams}`);
+                if (!res.ok) {
+                    throw new Error('加载失败');
+                }
+                const bookStatus = await res.json();
+                
+                // 确保书籍状态已更新到前端
+                this.bookStatus = bookStatus;
+                
+                let volumesWithPending = [];
+                let selectedVolume = null;
+                
+                // 根据 scope 决定分析范围
+                if (scope === 'volume' && this.statusPanelMode === 'volume' && this.statusPanelVolume) {
+                    // 单卷模式：只分析当前选中的卷
+                    // 注意：不能直接使用 statusPanelVolume，因为它是旧数据
+                    // 需要从最新的 bookStatus 中查找对应目录的卷
+                    selectedVolume = bookStatus.volumes.find(v => v.dir === this.statusPanelVolume.dir);
+                    
+                    if (selectedVolume) {
+                        const pending = selectedVolume.total_chapters - selectedVolume.completed_chapters - selectedVolume.failed_chapters;
+                        if (pending > 0 || selectedVolume.failed_chapters > 0) {
+                            volumesWithPending = [selectedVolume];
+                        }
+                    } else {
+                        console.warn('未找到匹配的卷:', this.statusPanelVolume.dir);
+                    }
+                } else {
+                    // 整书模式：分析所有待处理卷
+                    volumesWithPending = (bookStatus.volumes || []).filter(v => {
+                        const pending = v.total_chapters - v.completed_chapters - v.failed_chapters;
+                        return pending > 0 || v.failed_chapters > 0;
+                    });
+                }
+                
+                if (volumesWithPending.length === 0) {
+                    if (scope === 'volume' && this.statusPanelMode === 'volume' && this.statusPanelVolume) {
+                        alert('该卷所有章节已完成分析，无需重复处理');
+                    } else {
+                        alert('当前书籍所有章节已完成分析，无需重复处理');
+                    }
+                    return;
+                }
+                
+                this.analysisConfirmData = {
+                    book_name: bookStatus.book_name,
+                    scope: scope,              // 'book' or 'volume'
+                    total_volumes: volumesWithPending.length,
+                    total_chapters: volumesWithPending.reduce((sum, v) => sum + (v.total_chapters || 0), 0),
+                    pending_chapters: volumesWithPending.reduce((sum, v) => sum + (v.total_chapters - v.completed_chapters - v.failed_chapters), 0),
+                    failed_chapters: volumesWithPending.reduce((sum, v) => sum + (v.failed_chapters || 0), 0),
+                    volumes: volumesWithPending,
+                    selected_volume_dir: selectedVolume ? selectedVolume.dir : null
+                };
+                
+                // 默认全选所有有待处理章节的卷
+                this.selectedVolDirs = volumesWithPending.map(v => v.dir);
+                
+                this.showAnalysisConfirmModal = true;
+            } catch (err) {
+                console.error(err);
+                alert('加载书籍信息失败：' + err.message);
+            }
+        },
+        
+        closeAnalysisConfirm() {
+            this.showAnalysisConfirmModal = false;
+            this.analysisConfirmData = null;
+            this.selectedVolDirs = [];
+        },
+        
+        selectAllVolumes() {
+            if (!this.analysisConfirmData) return;
+            this.selectedVolDirs = this.analysisConfirmData.volumes.map(v => v.dir);
+        },
+        
+        async confirmBookAnalysis() {
+            if (!this.analysisConfirmData) return;
+            
+            // 保存必要数据（因为 closeAnalysisConfirm 会清空它）
+            const scope = this.analysisConfirmData.scope;
+            const selectedVolumeDir = this.analysisConfirmData.selected_volume_dir;
+            const project = this.selectedProject;
+            const book = this.selectedBook;
+            const selectedVols = [...this.selectedVolDirs];  // 拷贝一份
+            const concMode = this.concurrencyMode;
+            const maxConc = this.maxConcurrent;
+            
+            this.closeAnalysisConfirm();
+            
+            try {
+                const requestBody = {
+                    scope: scope,
+                    project: project,
+                    book: book
+                };
+                
+                if (scope === 'volume' && selectedVolumeDir) {
+                    requestBody.volume = selectedVolumeDir;
+                } else if (scope === 'book') {
+                    requestBody.selected_volumes = selectedVols;
+                    requestBody.concurrency_mode = concMode;
+                    requestBody.max_concurrent = maxConc;
+                }
+                
+                const res = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    this.analysisRunning = true;
+                    this.startSSE(data.task_id, '/analysis?task_id=' + data.task_id);
+                } else {
+                    const err = await res.json();
+                    alert('启动失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            }
+        },
+        
+        async startBatchAnalysis() {
+            if (!this.selectedBook) {
+                alert('请先选择书籍');
+                return;
+            }
+            try {
+                const res = await fetch('/api/analyze', { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.analysisRunning = true;
+                    this.startSSE(data.task_id);
+                } else {
+                    const err = await res.json();
+                    alert('启动失败：' + err.detail);
+                }
+            } catch (err) {
+                alert('请求错误：' + err.message);
+            }
+        },
+
+        startSSE(taskId, redirectUrl = null) {
+            const eventSource = new EventSource(`/api/tasks/${taskId}/log`);
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.progress !== undefined) {
+                        this.analysisProgress = data.progress;
+                    }
+                    if (data.status === 'completed') {
+                        this.analysisRunning = false;
+                        this.analysisProgress = 100;
+                        
+                        // 如果提供了重定向 URL，则跳转到分析任务中心查看进度详情
+                        if (redirectUrl) {
+                            setTimeout(() => {
+                                window.location.href = redirectUrl;
+                            }, 500);
+                            return;
+                        }
+                        
+                        // 否则刷新当前页面状态
+                        this.loadSelectedBookStatus();
+                        setTimeout(() => { eventSource.close(); }, 2000);
+                    }
+                    if (data.status === 'failed') {
+                        this.analysisRunning = false;
+                        alert('分析任务失败：' + (data.error || '未知错误'));
+                        eventSource.close();
+                    }
+                } catch (err) {
+                    // SSE 日志行为纯文本时忽略解析错误
+                }
+            };
+
+            eventSource.onerror = () => {
+                eventSource.close();
+                this.analysisRunning = false;
+            };
+        },
+
+        retryFailedAnalysis() {
+            const failedChapters = this.chapters.filter(c => c.status === 'failed');
+            if (failedChapters.length === 0) {
+                alert('没有失败章节可重试');
+                return;
+            }
+            if (!confirm(`将重试 ${failedChapters.length} 个失败章节，继续？`)) {
+                return;
+            }
+            alert('功能开发中：将筛选出所有标记为"失败"的章节并重新执行分析流程');
+        },
+
+        // ========== 卷总结 ==========
+        async summarizeVolume(vol) {
+            if (!this.selectedProject || !this.selectedBook) {
+                alert('请先选择项目与书籍');
+                return;
+            }
+            if (!confirm(`确定要生成第${vol.id}卷的完整总结吗？`)) {
+                return;
+            }
+
+            try {
+                this.isProcessing = true;
+                vol.summary_status = 'generating';
+
+                const volPath = `projects/${this.selectedProject}/${this.selectedBook}/${vol.dir}`;
+                const res = await fetch(`/api/volumes/${volPath}/summarize`, { method: 'POST' });
+
+                if (res.ok) {
+                    const result = await res.json();
+                    alert(`✅ ${result.message}`);
+                    await this.loadSelectedBookStatus();
+                } else {
+                    const err = await res.json();
+                    alert(`❌ ${err.detail}`);
+                    vol.summary_status = 'pending';
+                }
+            } catch (err) {
+                alert(`请求错误：${err.message}`);
+                vol.summary_status = 'pending';
+            } finally {
+                this.isProcessing = false;
+            }
+        },
+
+        // ========== 辅助函数 ==========
+        getFailedCount() {
+            return this.chapters.filter(c => c.status === 'failed').length;
+        },
+
+        formatNumber(num) {
+            return (num ?? 0).toLocaleString();
+        }
+    };
+}
+</script>
+{% endblock %}

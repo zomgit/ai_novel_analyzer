@@ -18,31 +18,20 @@ general:
   project_name: "AI Novel Analyzer"       # 项目名称（用于日志和标识）
   version: "2.0"                           # 版本号
   environment: "production"                # [可选值] development | staging | production
-  debug_mode: false                        # [推荐] true 开启详细调试日志，false 生产环境用
+  debug_mode: true                        # [推荐] true 开启详细调试日志，false 生产环境用
 
 
-# 工作目录设置（重要！）
+# 工作区设置（重要！）
 workspace:
-  root_dir: "."                            # 项目根目录路径
-  data_dir: "./data"                       # 数据存储主目录
-    # 🔍 含义：所有数据文件的根目录
+  # 工作区根目录：所有项目/书籍/数据的存放根
+  root: "workspace"
+    # 🔍 含义：项目结构的顶层目录
+    # 📁 目录层级：workspace/projects/{项目名}/{书名}/vol_{NNN}_{卷名}/
   
-  input_dir: "./data/raw"                  # 原始文本输入目录
-    # 🔍 含义：放置待处理的章节 txt/md 文件
-    # ✅ 格式要求：文件名应为 vol_X_chap_Y.txt 或 volume_X_chapter_Y.txt
-  
-  output_dir: "./data/processed"           # JSON 输出目录
-    # 🔍 含义：处理后的结构化分析结果存储位置
-  
-  vector_db_dir: "./db/vector_store"       # ChromaDB 向量库目录
-    # 🔍 含义：向量数据库本地持久化存储位置
-    # ✅ 确保磁盘有足够空间（建议至少 5GB）
-  
-  sqlite_db_dir: "./db/sqlite"             # SQLite 结构化数据库目录（预留）
-    # 🔍 含义：关系型数据存储（Phase 2 功能）
-  
-  log_dir: "./logs"                        # 日志文件目录
-    # 🔍 含义：批处理日志、错误日志、性能监控日志
+  # 项目集合目录（缺省由 root/projects 推导）
+  projects_dir: "workspace/projects"
+    # 🔍 含义：每个子目录即一个分析项目
+    # ✅ 项目元数据：{项目名}/project_meta.json
 
 
 # ==================== 2. AI Model API 配置 ====================
@@ -123,14 +112,16 @@ ai_model:
                                              #
                                              # ✅ 本项目推荐使用 0.0（JSON 输出需要确定性）
     
-    max_tokens: 8192                         # [必选] 最大生成 token 数
+    max_tokens: 32768                        # [必选] 最大生成 token 数（章节分析等主任务）
                                              # 
                                              # 🔍 含义：单次响应允许的最大输出长度
                                              # 
                                              # 🎯 推荐值：
                                              #   • 简单任务：4096
-                                             #   • 完整七维分析：8192 (推荐)
-                                             #   • 超长原文 + 复杂结构：16384
+                                             #   • 完整七维分析：32768 (推荐)
+                                             #   • 超长原文 + 复杂结构：24576
+    
+    aux_max_tokens: 4096                     # [可选] 辅助任务最大 token 数（卷总结、摘要压缩等）
     
     timeout: 120                             # [可选] API 请求超时时间（秒）
                                              # 
@@ -205,7 +196,7 @@ embedding:
 
 processing:
   # 并发控制（影响处理速度和资源占用）
-  max_workers: 4                          # [必选] 并行线程数
+  max_workers: 1                          # [必选] 并行线程数
                                          # 
                                          # 🎯 推荐配置：
                                          # • 低配机器 (8GB RAM): 1-2 workers
@@ -220,7 +211,7 @@ processing:
   save_partial_results: true              # [推荐] 即使部分错误也保存成功章节
   
   # Token 管理（防止超出上下文限制）
-  max_tokens_per_chapter: 8192            # [必选] 每章输入 token 上限
+  max_tokens_per_chapter: 18192            # [必选] 每章输入 token 上限
   token_margin: 0.1                       # [可选] 安全余量比例（10%）
   truncate_strategy: "recent_first"       # [可选] truncation 策略：recent_first | balanced
   
@@ -229,7 +220,6 @@ processing:
   allow_partial_output: false             # [可选] 允许不完整的输出（仅调试用）
   
   # 上下文链维护（保证剧情连贯性）
-  context_window_size: 5                  # [必选] 保留前 N 章作为上下文摘要
   enable_context_chain: true              # [推荐] 启用章节间上下文传递
 
 
@@ -284,7 +274,21 @@ storage:
     event_timeline: true                  # [推荐] 时间线索引
 
 
-# ==================== 6. 日志系统配置 ====================
+# ==================== 6. 章节分割配置 ====================
+
+chapter_splitting:
+  # 章节标题正则列表（按顺序匹配，命中即认为该行是章节标题）
+  # 每条正则必须包含两个捕获组: group(1)=章节编号, group(2)=标题后缀
+  # 默认仅含中文模式，英文小说可自行添加一行:
+  #   - '^\s*[Cc]hapter\s+(\d+)\s*[::\-]?\s*(.{0,60})\s*$'
+  title_patterns:
+    - '^\s*第\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*[章节回部集篇]\s*[::\s]?\s*(.{0,60})\s*$'
+    - '^\s*[章节回]\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*[::\s]?\s*(.{0,60})\s*$'
+    - '^\s*(\d{1,4})\s*[.、．,，]\s*(.{1,60})\s*$'
+    - '^\s*(序章|楔子|引子|终章|尾声|番外|后记|前言)\s+[::\s]?\s*(.{1,60})\s*$'
+
+
+# ==================== 7. 日志系统配置 ====================
 
 logging:
   level: "INFO"                          # [必选] 日志级别：DEBUG|INFO|WARNING|ERROR|CRITICAL
@@ -322,7 +326,7 @@ logging:
   
 
 
-# ==================== 7. 性能调优配置 ====================
+# ==================== 8. 性能调优配置 ====================
 
 performance:
   # 内存管理
@@ -345,7 +349,7 @@ performance:
   request_timeout: 120                    # [必选] 网络请求超时（秒）
 
 
-# ==================== 8. 扩展插件配置 ====================
+# ==================== 9. 扩展插件配置 ====================
 
 plugins:
   # 自定义处理器
@@ -361,7 +365,7 @@ plugins:
     on_error: null                        # [可选] 错误发生触发
 
 
-# ==================== 9. 开发测试配置 ====================
+# ==================== 10. 开发测试配置 ====================
 
 development:
   mock_api_responses: false               # [可选] true 使用模拟响应（无需真实 API）
@@ -375,7 +379,7 @@ development:
     run_before_commit: true               # [推荐] commit 前自动运行测试
 
 
-# ==================== 10. 环境变量参考清单 ====================
+# ==================== 11. 环境变量参考清单 ====================
 
 # 本配置文件中使用了以下环境变量占位符，请确保它们已正确设置：
 
@@ -401,43 +405,17 @@ development:
 
 # 🎯 场景 A: 性价比最高（推荐新手）
 # ------------------------------------
-general.environment: "production"
-ai_model.type: "openai_compatible"
-ai_model.params.base_url: "https://api.siliconflow.cn/v1"
-ai_model.params.model: "Qwen/Qwen2.5-72B-Instruct"
-embedding.type: "siliconflow"
-embedding.params.model_name: "BAAI/bge-m3"
-processing.max_workers: 4
+#general.environment: "production"
+#ai_model.type: "openai_compatible"
+#ai_model.params.base_url: "https://api.siliconflow.cn/v1"
+#ai_model.params.model: "Qwen/Qwen2.5-72B-Instruct"
+#embedding.type: "siliconflow"
+#embedding.params.model_name: "BAAI/bge-m3"
+#processing.max_workers: 1
 
 # 需要设置的环境变量：
 # export AI_MODEL_API_KEY="your-siliconflow-ai-key"
 # export SILICONFLOW_API_KEY="your-siliconflow-embedding-key"
-
-
-# 🎯 场景 B: 完全离线运行
-# ------------------------------------
-general.environment: "production"
-ai_model.type: "ollama"
-ai_model.params.host: "http://localhost:11434"
-ai_model.params.model: "llama3.2"
-embedding.type: "local"  # 需要本地 GPU 支持
-processing.max_workers: 1  # 降低并发避免 CPU 过载
-
-# 需要设置：无（本地安全环境）
-
-
-# 🎯 场景 C: 极速测试迭代
-# ------------------------------------
-general.debug_mode: true
-ai_model.type: "openai_compatible"
-ai_model.params.base_url: "https://api.groq.com/openai/v1"
-ai_model.params.model: "llama3-70b-8192"
-processing.max_workers: 2
-logging.level: "DEBUG"
-
-# 需要设置的环境变量：
-# export AI_MODEL_API_KEY="your-groq-api-key"
-
 
 # ==================== 故障排查提示 ====================
 

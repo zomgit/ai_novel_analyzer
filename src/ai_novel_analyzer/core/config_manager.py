@@ -7,6 +7,11 @@ import os
 import yaml
 from pathlib import Path
 from typing import Optional, Any, Dict
+from dotenv import load_dotenv
+
+
+class ConfigError(Exception):
+    """配置缺失或非法时抛出"""
 
 
 class ConfigManager:
@@ -30,6 +35,11 @@ class ConfigManager:
         Args:
             config_file: 可选的用户配置文件路径（覆盖默认 USER_CONFIG）
         """
+        # 优先加载 .env 文件中的环境变量
+        env_file = self._BASE_DIR / ".env"
+        if env_file.exists():
+            load_dotenv(dotenv_path=env_file, override=False)
+        
         # 加载默认配置
         if not self.DEFAULT_CONFIG.exists():
             raise FileNotFoundError(f"默认配置文件不存在：{self.DEFAULT_CONFIG}")
@@ -43,14 +53,29 @@ class ConfigManager:
         elif Path(self.USER_CONFIG).exists():
             self.user_config = self._load_yaml(self.USER_CONFIG)
         
-        # 合并配置（用户配置覆盖默认配置）
-        self.config: Dict[str, Any] = {**self.defaults, **self.user_config}
+        # 合并配置（用户配置递归覆盖默认配置）
+        self.config: Dict[str, Any] = self._deep_merge(self.defaults, self.user_config)
         
         # 解析环境变量
         self._resolve_environment_variables()
         
         # 确保必需目录存在
         self._ensure_directories()
+    
+    @staticmethod
+    def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """递归深合并配置：override 中的值覆盖 base，嵌套字典逐层合并
+        
+        避免用户配置只覆盖顶层 key 时整块替换默认配置块
+        （如 logging / workspace 等块内的其他字段会丢失）
+        """
+        merged: Dict[str, Any] = dict(base)
+        for key, value in override.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = ConfigManager._deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
     
     def _resolve_environment_variables(self) -> None:
         """递归解析配置中的环境变量 ${VAR_NAME}"""
@@ -72,9 +97,8 @@ class ConfigManager:
     def _ensure_directories(self) -> None:
         """确保配置中定义的目录存在"""
         dirs_to_create = [
-            self.input_dir,
-            self.output_dir,
-            self.processed_dir,
+            self.workspace_root,
+            self.projects_dir,
             self.db_dir,
             self.logs_dir,
             self.chromadb_path
@@ -96,46 +120,44 @@ class ConfigManager:
     
     # ========== 标准路径属性 ==========
     
-    @property
-    def input_dir(self) -> Path:
-        """标准输入目录（原始小说文本）"""
-        return self._resolve_relative(self.config.get('io', {}).get('input_dir', 'user_data/novel_raw'))
+    def _require(self, dotted_key: str) -> str:
+        """读取必需配置项，缺失即抛错（不提供默认值）"""
+        value = self.get(dotted_key)
+        if not value:
+            raise ConfigError(
+                f"缺少必需配置项：{dotted_key}，请在 config/defaults.yaml 或 production.yaml 中配置"
+            )
+        return value
     
     @property
-    def output_dir(self) -> Path:
-        """标准输出目录（切分+AI 分析结果）"""
-        return self._resolve_relative(self.config.get('io', {}).get('output_dir', 'user_data/novel_data'))
+    def workspace_root(self) -> Path:
+        """工作区根目录（项目/书籍/数据的存放根）"""
+        return self._resolve_relative(self._require('workspace.root'))
     
     @property
-    def processed_dir(self) -> Path:
-        """处理后的 JSON 文件目录"""
-        return self.output_dir / 'processed'
-    
-    @property
-    def raw_dir(self) -> Path:
-        """原始文本文件目录"""
-        return self.output_dir / 'raw'
+    def projects_dir(self) -> Path:
+        """项目集合目录"""
+        return self._resolve_relative(self._require('workspace.projects_dir'))
     
     @property
     def db_dir(self) -> Path:
         """数据库目录（SQLite + ChromaDB）"""
-        return self._resolve_relative(self.config.get('db', {}).get('path', 'user_data/database'))
+        return self._resolve_relative(self._require('db.path'))
     
     @property
     def logs_dir(self) -> Path:
         """日志目录"""
-        return self._resolve_relative(self.config.get('logging', {}).get('log_dir', 'logs'))
+        return self._resolve_relative(self._require('logging.log_dir'))
     
     @property
     def chromadb_path(self) -> Path:
         """ChromaDB 存储路径"""
-        db_path = self.db_dir / 'chromadb'
-        return self._resolve_relative(str(db_path))
+        return self._resolve_relative(self._require('vector_store.path'))
     
     @property
     def sqlite_db_path(self) -> Path:
         """SQLite 数据库文件路径"""
-        return self.db_dir / 'novel_analyzer.db'
+        return self.db_dir / self._require('db.sqlite_db')
     
     # ========== AI API 配置 ==========
     
@@ -162,35 +184,30 @@ class ConfigManager:
     
     @property
     def max_tokens(self) -> int:
-        """最大 Token 数"""
-        return self.config.get('ai_api', {}).get('max_tokens', 8192)
+        """最大 Token 数（主任务：章节分析等）
+        
+        配置路径优先级: ai_api.max_tokens > ai_model.params.max_tokens > 32768
+        """
+        val = self.config.get('ai_api', {}).get('max_tokens')
+        if val is not None:
+            return val
+        return self.config.get('ai_model', {}).get('params', {}).get('max_tokens', 32768)
+    
+    @property
+    def aux_max_tokens(self) -> int:
+        """辅助任务最大 Token 数（卷总结、摘要压缩等轻量任务）
+        
+        配置路径优先级: ai_api.aux_max_tokens > ai_model.params.aux_max_tokens > 4096
+        """
+        val = self.config.get('ai_api', {}).get('aux_max_tokens')
+        if val is not None:
+            return val
+        return self.config.get('ai_model', {}).get('params', {}).get('aux_max_tokens', 4096)
     
     @property
     def temperature(self) -> float:
         """生成温度"""
         return self.config.get('ai_api', {}).get('temperature', 0.7)
-    
-    # ========== 维度配置 ==========
-    
-    @property
-    def dimension_config_path(self) -> Path:
-        """维度配置文件路径"""
-        return self._resolve_relative(self.config.get('dimensions', {}).get('config_path', 'config/dimensions/xianxia.yaml'))
-    
-    @property
-    def auto_generate_prompt(self) -> bool:
-        """是否自动生成 Prompt"""
-        return self.config.get('dimensions', {}).get('auto_generate_prompt', True)
-    
-    @property
-    def batch_size(self) -> int:
-        """批量处理大小"""
-        return self.config.get('dimensions', {}).get('batch_size', 10)
-    
-    @property
-    def parallel_workers(self) -> int:
-        """并行 worker 数量"""
-        return self.config.get('dimensions', {}).get('parallel_workers', 4)
     
     # ========== ChromaDB 配置 ==========
     
@@ -222,6 +239,9 @@ class ConfigManager:
         """
         解析相对路径（相对于项目根目录）
         
+        注意：始终基于 _BASE_DIR 解析，绝不依赖当前工作目录（cwd），
+        否则启动脚本切换 cwd 时（如 Web UI）会把 workspace 建到错误位置。
+
         Args:
             path_str: 路径字符串
             
@@ -231,7 +251,7 @@ class ConfigManager:
         p = Path(path_str)
         if p.is_absolute():
             return p
-        return Path.cwd() / p
+        return self._BASE_DIR / p
     
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -265,8 +285,8 @@ class ConfigManager:
         """字符串表示"""
         return (
             f"ConfigManager(\n"
-            f"  input_dir={self.input_dir}\n"
-            f"  output_dir={self.output_dir}\n"
+            f"  workspace_root={self.workspace_root}\n"
+            f"  projects_dir={self.projects_dir}\n"
             f"  db_dir={self.db_dir}\n"
             f"  api_provider={self.api_provider}\n"
             f")"

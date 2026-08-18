@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}总览仪表盘{% endblock %}
+
+{% block content %}
+<div x-data="dashboard()" x-init="initDashboard()" class="space-y-6">
+    
+    <!-- 标题栏 -->
+    <div class="flex items-center justify-between">
+        <h2 class="text-3xl font-bold text-gray-800">📊 总览仪表盘</h2>
+        <button @click="refreshData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            🔄 刷新数据
+        </button>
+    </div>
+    
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <template x-for="stat in stats" :key="stat.name">
+            <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm text-gray-500" x-text="stat.label"></h3>
+                    <span class="p-2 rounded-lg" :class="stat.colorBg" :style="{ backgroundColor: `${stat.color}20` }">
+                        <span class="text-2xl" x-text="stat.icon"></span>
+                    </span>
+                </div>
+                <p class="text-3xl font-bold text-gray-800" x-text="formatNumber(stat.value)"></p>
+                <div class="mt-2 flex items-center text-xs text-gray-500">
+                    <span :class="stat.trend > 0 ? 'text-green-600' : 'text-red-600'" x-text="(stat.trend > 0 ? '+' : '') + stat.trend + '%'"></span>
+                    <span class="ml-1">较昨日</span>
+                </div>
+            </div>
+        </template>
+    </div>
+    
+    <!-- 进度概览图 -->
+    <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+        <h3 class="text-xl font-bold text-gray-800 mb-4">📈 分析进度分布</h3>
+        <div class="h-80">
+            <canvas id="progressChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- 最近任务列表 -->
+    <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+        <h3 class="text-xl font-bold text-gray-800 mb-4">🕐 最近任务</h3>
+        <div class="space-y-3" x-show="recentTasks.length === 0">
+            <p class="text-gray-500 text-center py-8">暂无任务记录</p>
+        </div>
+        <table class="w-full" x-show="recentTasks.length > 0">
+            <thead>
+                <tr class="border-b border-gray-200">
+                    <th class="text-left py-2 px-4 text-sm font-semibold text-gray-600">任务名称</th>
+                    <th class="text-left py-2 px-4 text-sm font-semibold text-gray-600">状态</th>
+                    <th class="text-left py-2 px-4 text-sm font-semibold text-gray-600">进度</th>
+                    <th class="text-left py-2 px-4 text-sm font-semibold text-gray-600">时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="task in recentTasks" :key="task.id">
+                    <tr class="border-b border-gray-100 hover:bg-gray-50">
+                        <td class="py-3 px-4 text-sm" x-text="task.name"></td>
+                        <td class="py-3 px-4 text-sm">
+                            <span class="px-2 py-1 rounded-full text-xs font-medium"
+                                  :class="{
+                                      'bg-green-100 text-green-700': task.status === 'completed',
+                                      'bg-blue-100 text-blue-700': task.status === 'running',
+                                      'bg-yellow-100 text-yellow-700': task.status === 'queued',
+                                      'bg-red-100 text-red-700': task.status === 'failed'
+                                  }"
+                                  x-text="task.status">
+                            </span>
+                        </td>
+                        <td class="py-3 px-4 text-sm">
+                            <div class="flex items-center gap-2">
+                                <div class="w-24 bg-gray-200 rounded-full h-2">
+                                    <div class="h-2 rounded-full transition-all" 
+                                         :class="task.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'"
+                                         :style="`width: ${task.progress}%`"></div>
+                                </div>
+                                <span class="text-xs" x-text="task.progress + '%'"></span>
+                            </div>
+                        </td>
+                        <td class="py-3 px-4 text-sm text-gray-500" x-text="formatTime(task.time)"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function dashboard() {
+    return {
+        stats: {
+            chapters_total: 0,
+            characters: 0,
+            locations: 0,
+            items: 0,
+            events: 0,
+            skills: 0,
+            world_building: 0
+        },
+        recentTasks: [],
+        chartInstance: null,
+        
+        async initDashboard() {
+            await this.loadStats();
+            await this.initChart();
+            // 定时刷新（每 30 秒）
+            setInterval(() => this.refreshData(), 30000);
+        },
+        
+        async loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.stats = data;
+                }
+            } catch (err) {
+                console.error('加载统计数据失败:', err);
+            }
+        },
+        
+        async refreshData() {
+            await this.loadStats();
+            if (this.chartInstance) {
+                this.updateChart();
+            }
+        },
+        
+        async initChart() {
+            const ctx = document.getElementById('progressChart');
+            if (!ctx) return;
+            
+            this.chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['角色', '地点', '物品', '事件', '技能', '世界观'],
+                    datasets: [{
+                        label: '数据量',
+                        data: [
+                            this.stats.characters,
+                            this.stats.locations,
+                            this.stats.items,
+                            this.stats.events,
+                            this.stats.skills,
+                            this.stats.world_building
+                        ],
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.7)',
+                            'rgba(16, 185, 129, 0.7)',
+                            'rgba(245, 158, 11, 0.7)',
+                            'rgba(239, 68, 68, 0.7)',
+                            'rgba(139, 92, 246, 0.7)',
+                            'rgba(236, 72, 153, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgb(59, 130, 246)',
+                            'rgb(16, 185, 129)',
+                            'rgb(245, 158, 11)',
+                            'rgb(239, 68, 68)',
+                            'rgb(139, 92, 246)',
+                            'rgb(236, 72, 153)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: (value) => Math.round(value).toLocaleString()
+                            }
+                        }
+                    }
+                }
+            });
+        },
+        
+        updateChart() {
+            if (this.chartInstance) {
+                this.chartInstance.data.datasets[0].data = [
+                    this.stats.characters,
+                    this.stats.locations,
+                    this.stats.items,
+                    this.stats.events,
+                    this.stats.skills,
+                    this.stats.world_building
+                ];
+                this.chartInstance.update();
+            }
+        },
+        
+        formatNumber(num) {
+            return num.toLocaleString();
+        },
+        
+        formatTime(timestamp) {
+            return new Date(timestamp).toLocaleString('zh-CN');
+        }
+    };
+}
+</script>
+{% endblock %}

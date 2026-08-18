@@ -14,10 +14,8 @@
 - [AI_续写项目需求文档.md](./AI_续写项目需求文档.md) - 完整规格书（数据结构 + Prompt 模板）
 
 ### 📖 使用指南
-- [docs/AI_API_Configuration_Guide.md](./docs/AI_API_Configuration_Guide.md) - AI API 配置详解
-- [docs/配置管理完整指南.md](./docs/配置管理完整指南.md) - 配置管理体系
-- [prompts/README.md](./prompts/README.md) - Prompt 库使用手册
-- [scripts/README_aggregate.md](./scripts/README_aggregate.md) - 维度聚合工具使用
+- [docs/配置管理完整指南.md](./docs/配置管理完整指南.md) - 配置管理体系详解
+- [docs/CLI_GUIDE.md](./docs/CLI_GUIDE.md) - **CLI 命令速查** ⭐ 推荐新手先看
 
 ### 🔧 Prompt 模板
 - [prompts/core/chapter_processor.md](./prompts/core/chapter_processor.md) - 核心章节分析 Prompt
@@ -78,6 +76,243 @@ python scripts\verify_environment.py
 ```
 
 📖 **详细说明**: 见 [QUICKSTART.md](./QUICKSTART.md)
+
+---
+
+## 🛠️ CLI 工具箱
+
+本项目提供了丰富的命令行工具，支持小说分析全流程：
+
+### 基础配置与验证
+
+```powershell
+# 验证环境安装
+uv run python scripts\verify_environment.py
+
+# 交互式配置向导（推荐新手）
+uv run python scripts\quick_setup.py
+```
+
+### 数据处理工具
+
+#### 小说分割工具
+
+将整卷文本自动分章：
+
+```powershell
+# 预览分割效果（不写文件）
+uv run python scripts\split_novel.py -i "你的小说.txt" --preview
+
+# 正式分割（输出到 user_data/novel_raw/）
+uv run python scripts\split_novel.py -i "你的小说.txt" -o user_data\novel_raw
+
+# 指定分卷号
+uv run python scripts\split_novel.py -i "小说.txt" --volume 5
+
+# 并发处理（加速大文件）
+uv run python scripts\split_novel.py -i "小说.txt" --workers 8
+```
+
+**识别能力**:
+- ✅ 标题模式：`第 X 章/节/回 `、`章节 X`、`Chapter X`、`001. 标题`
+- ✅ 分卷识别：`第 X 卷 卷名 ` 自动归属卷号
+- ✅ 中文数字：`第一百二十三章 `→第 123 章
+- ✅ 编码自动探测：utf-8 / gb18030 / gbk / big5
+- ✅ 兜底切分：无标题时按 3000 字聚合成段落
+
+#### 批量处理引擎
+
+对已分割的章节进行 AI 分析：
+
+```powershell
+# 基础用法（使用 ConfigManager 自动读取配置）
+uv run python scripts\batch_processor.py
+
+# 显式指定目录
+uv run python scripts\batch_processor.py --input-dir user_data\novel_raw\ --output-dir user_data\novel_data\processed\ --workers 4
+
+# 带向量存储和日志
+uv run python scripts\batch_processor.py --vector-db-path user_data\database\chromadb\ --log-file custom.log
+
+# 容错模式（失败跳过继续）
+uv run python scripts\batch_processor.py --continue-on-failure
+```
+
+💡 **提示**: v2.0+ 使用统一的 ConfigManager，会自动从配置文件读取路径和 API Key
+
+---
+
+### 数据分析工具
+
+#### 维度聚合工具
+
+汇总所有章节的结构化数据：
+
+```powershell
+# 启用 AI 压缩（较慢但精炼）
+uv run python scripts\aggregate_dimensions.py
+
+# 快速模式（禁用 AI 压缩）
+uv run python scripts\aggregate_dimensions.py --no-ai-compression
+
+# 指定目录
+uv run python scripts\aggregate_dimensions.py --input-dir user_data\novel_data\processed\ --output-dir user_data\novel_data\index\
+```
+
+**生成的维度库**:
+- `character_library.json` - 人物库（去重 + 历史合并）
+- `location_atlas.json` - 地点档案（访问历史 + 事件）
+- `item_catalog.json` - 物品图鉴（全生命周期）
+- `world_event_timeline.json` - 世界事件时间线
+- `foreshadowing_library.json` - 伏笔库
+- `plot_secrets_library.json` - 剧情秘密库
+
+📖 **详细说明**: [scripts/README_aggregate.md](./scripts/README_aggregate.md)
+
+#### 统计报表生成器
+
+从 SQLite EAV 数据库生成统计报告：
+
+```powershell
+# 生成完整报表并打印摘要
+uv run python scripts\generate_statistics_report.py
+
+# 保存为 JSON 文件
+uv run python scripts\generate_statistics_report.py -o user_data\reports\stats.json
+
+# 自定义维度配置
+uv run python scripts\generate_statistics_report.py -c config\dimensions\xianxia.yaml
+```
+
+**输出内容包括**:
+- 📊 总章节数和记录数
+- 📈 各维度分布统计
+- 👥 角色出场 TOP 排名
+- ⚔️ 事件频率分析
+
+#### 维度配置切换器
+
+一键切换不同的维度预设（仙侠/都市/科幻等）：
+
+```powershell
+# 列出所有可用预设
+uv run python scripts\dimension_switcher.py --list
+
+# 切换到仙侠配置
+uv run python scripts\dimension_switcher.py --switch xianxia
+
+# 强制切换（不询问确认）
+uv run python scripts\dimension_switcher.py --switch urban --force
+
+# 查看当前配置详情
+uv run python scripts\dimension_switcher.py --show
+```
+
+**支持的预设类型**:
+- `xianxia` - 仙侠小说（修真、门派、法宝）⭐ 默认
+- `urban` - 都市小说（商战、情感、职场）
+- `scifi` - 科幻小说（科技、外星、探索）
+- `fantasy` - 奇幻小说（魔法、种族、大陆）
+
+⚠️ **注意**: 切换维度配置会重新生成数据库表结构，旧数据会自动备份。
+
+#### JSON → EAV 迁移工具
+
+将 AI 分析输出的 JSON 批量导入 SQLite 数据库：
+
+```powershell
+# 使用默认配置（config/dimensions/xianxia.yaml）
+uv run python scripts\migrate_json_to_eav.py
+
+# 指定 JSON 输入目录
+uv run python scripts\migrate_json_to_eav.py -i user_data\novel_data\processed\
+
+# 自定义维度配置
+uv run python scripts\migrate_json_to_eav.py -c config\dimensions\urban.yaml
+
+# 覆盖已有数据库（谨慎使用）
+uv run python scripts\migrate_json_to_eav.py --force
+```
+
+**功能特性**:
+- ✅ 批量导入所有章节 JSON
+- ✅ 自动生成 EAV 表结构
+- ✅ 错误重试和日志记录
+- ✅ 迁移报告生成
+
+#### 端到端测试套件
+
+运行完整的系统测试：
+
+```powershell
+# 运行 E2E 测试（7 个核心模块）
+uv run python tests\integration\test_e2e_full_pipeline.py
+
+# 显示详细日志
+uv run python tests\integration\test_e2e_full_pipeline.py -v
+```
+
+**测试结果**:
+```
+[OK] ConfigManager working
+[OK] DimensionEngine initialized
+[OK] SQLiteEAVStorage functional
+[OK] UnifiedQueryAPI operational
+[OK] StatisticsReport generated
+[OK] ChromaDB Enhancer active
+[OK] DimensionSwitcher ready
+✅ All 7 tests passed!
+```
+
+---
+
+### 常用工作流示例
+
+#### 场景 1: 处理一整本小说（从零开始）
+
+```powershell
+# Step 1: 准备配置
+uv run python scripts\quick_setup.py
+
+# Step 2: 分割小说（如果文本未分章）
+uv run python scripts\split_novel.py -i "我的小说.txt" --volume 1
+
+# Step 3: 批量分析章节
+uv run python scripts\batch_processor.py --workers 8
+
+# Step 4: 生成统计报告
+uv run python scripts\generate_statistics_report.py
+
+# Step 5: 验证结果
+uv run python tests\integration\test_e2e_full_pipeline.py
+```
+
+#### 场景 2: 跨不同类型小说切换
+
+```powershell
+# 处理仙侠小说
+uv run python scripts\dimension_switcher.py --switch xianxia --force
+uv run python scripts\batch_processor.py
+uv run python scripts\migrate_json_to_eav.py
+
+# 切换到都市小说处理另一本书
+uv run python scripts\dimension_switcher.py --switch urban --force
+uv run python scripts\batch_processor.py  # 自动适配新维度
+```
+
+#### 场景 3: 分析与可视化
+
+```powershell
+# 生成结构化数据库
+uv run python scripts\migrate_json_to_eav.py
+
+# 导出统计数据
+uv run python scripts\generate_statistics_report.py -o reports/stats.json
+
+# 后续可用任何可视化工具读取 SQLite 和 JSON 文件
+```
+
+
 
 ---
 
@@ -172,27 +407,16 @@ output/raw/
 
 ```powershell
 # 基础用法
-uv run python scripts\batch_processor.py ^
-    --input-dir output/raw/ ^
-    --output-dir output/processed/ ^
-    --workers 4
+uv run python scripts\batch_processor.py --input-dir output/raw/ --output-dir output/processed/ --workers 4
 
 # 带向量存储
-uv run python scripts\batch_processor.py ^
-    --input-dir output/raw/ ^
-    --output-dir output/processed/ ^
-    --vector-db-path db/local_vector_store ^
-    --workers 4
+uv run python scripts\batch_processor.py --input-dir output/raw/ --output-dir output/processed/ --vector-db-path db/local_vector_store --workers 4
 
 # 容错模式（失败跳过继续）
-uv run python scripts\batch_processor.py ^
-    --input-dir output/raw/ ^
-    --continue-on-failure
+uv run python scripts\batch_processor.py --input-dir output/raw/ --continue-on-failure
 ```
 
-💡 **PowerShell 注意**: 
-- 多行命令用 `` ` `` 或 ``^`` 续行
-- Windows CMD 用 `/` 代替 ``^``
+
 
 📖 **详细说明**: [配置管理完整指南.md](./docs/配置管理完整指南.md)
 
@@ -210,9 +434,7 @@ uv run python scripts\aggregate_dimensions.py
 uv run python scripts\aggregate_dimensions.py --no-ai-compression
 
 # 指定目录
-uv run python scripts\aggregate_dimensions.py ^
-    --input-dir output/processed/ ^
-    --output-dir output/index/
+uv run python scripts\aggregate_dimensions.py --input-dir output/processed/ --output-dir output/index/
 ```
 
 **生成的维度库**:
@@ -228,6 +450,93 @@ uv run python scripts\aggregate_dimensions.py ^
 ---
 
 ## 🏗️ 项目结构
+
+```
+AI-Hero_Reborn/
+├── src/ai_novel_analyzer/        # 核心源码
+│   ├── core/                      # 处理器 + Prompt 管理器
+│   │   ├── config_manager.py      # ✨ 统一配置管理
+│   │   ├── dimension_engine.py    # ✨ 声明式维度引擎
+│   │   └── logging_config.py      # ✨ 日志系统
+│   ├── models/                    # 数据模型 + Schema
+│   ├── storage/                   # 三层存储系统
+│   │   ├── sqlite_eav_storage.py  # ✨ EAV 数据库
+│   │   ├── unified_query_api.py   # ✨ 统一查询 API
+│   │   └── chroma_enhancer.py     # ✨ 向量增强
+│   └── utils/                     # API 客户端 + 工具
+│
+├── prompts/                       # Prompt 模板库
+│   ├── core/chapter_processor.md  # 核心 Prompt ⭐
+│   ├── tasks/*.md                 # 专项任务 Prompts
+│   └── templates/output_schema.json
+│
+├── config/
+│   ├── defaults.yaml              # 默认配置（Git 版本）
+│   ├── production.example.yaml    # 配置模板（Git 版本）
+│   ├── production.yaml            # 个人配置（忽略）
+│   └── dimensions/                # ✨ 维度预设
+│       ├── xianxia.yaml          # 仙侠小说（11 维）
+│       └── urban.yaml            # 都市小说（7 维）
+│
+├── scripts/                       # CLI 工具箱
+│   ├── verify_environment.py      # 环境验证
+│   ├── quick_setup.py             # 交互式配置向导
+│   ├── split_novel.py             # 小说分割工具
+│   ├── batch_processor.py         # 批量处理引擎
+│   ├── aggregate_dimensions.py    # 维度聚合工具
+│   ├── migrate_json_to_eav.py     # ✨ JSON→EAV 迁移
+│   ├── generate_statistics_report.py # ✨ 统计报表
+│   ├── dimension_switcher.py      # ✨ 维度切换
+│   └── test_*.py                  # 测试辅助脚本
+│
+├── tests/                         # ✨ 规范化测试
+│   ├── conftest.py                # Pytest fixtures
+│   ├── integration/
+│   │   └── test_e2e_full_pipeline.py # E2E 测试
+│   └── test_*/                    # 单元测试（可选）
+│
+├── user_data/                     # ✨ 标准数据目录
+│   ├── novel_raw/                 # 原始小说文本（输入）
+│   ├── novel_data/                # AI 分析结果（输出）
+│   │   ├── raw/                   # 分割章节
+│   │   ├── processed/             # JSON 文件
+│   │   └── summaries/             # 章节摘要
+│   └── database/                  # SQLite + ChromaDB
+│
+├── docs/                          # 文档目录
+│   ├── AI_API_Configuration_Guide.md
+│   ├── 配置管理完整指南.md
+│   ├── INSTALLATION_GUIDE.md
+│   └── PHASE_0-4_IMPLEMENTATION_SUMMARY.md
+│
+├── logs/                          # ✨ 统一日志目录
+├── .env                           # 环境变量（忽略）
+├── .env.example                   # 环境变量模板
+├── QUICKSTART.md                  # 快速开始
+└── pyproject.toml                 # uv 配置
+```
+
+---
+
+### CLI 命令速查表
+
+| 命令 | 用途 | 状态 |
+|------|------|------|
+| `split_novel.py` | 小说文本分割 | ✅ 可用 |
+| `batch_processor.py` | AI 批量分析 | ✅ 可用 |
+| `aggregate_dimensions.py` | 维度数据聚合 | ✅ 可用 |
+| `generate_statistics_report.py` | 统计报表生成 | ✅ 新增 |
+| `dimension_switcher.py` | 维度配置切换 | ✅ 新增 |
+| `migrate_json_to_eav.py` | JSON→EAV 迁移 | ✅ 新增 |
+| `test_e2e_full_pipeline.py` | 端到端测试 | ✅ 新增 |
+| `quick_setup.py` | 交互式配置 | ✅ 维护 |
+| `verify_environment.py` | 环境验证 | ✅ 维护 |
+
+📚 完整文档：[PHASE_0-4_IMPLEMENTATION_SUMMARY.md](./docs/PHASE_0-4_IMPLEMENTATION_SUMMARY.md)
+
+---
+
+## 🤖 支持的 AI Provider
 
 ```
 AI-Hero_Reborn/
@@ -404,7 +713,18 @@ processing.max_workers: 2
 
 ## 🚧 开发路线
 
-### Phase 1: 核心功能 ✅ (已完成)
+### Phase 0: 基础设施重构 ✅ (已完成)
+- [x] ConfigManager 统一配置管理系统
+- [x] 声明式维度引擎 (DimensionEngine)
+- [x] SQLite EAV 结构化存储
+- [x] 统一查询 API (UnifiedQueryAPI)
+- [x] 维度配置切换工具
+- [x] JSON→EAV 迁移工具
+- [x] 统计报表生成器
+- [x] E2E 测试套件 (7/7 通过)
+- [x] 标准化目录结构和日志系统
+
+### Phase 1-3: 核心功能 ✅ (已完成)
 - [x] Prompt 模板库构建
 - [x] 单章处理器实现
 - [x] 三层存储系统
@@ -425,6 +745,10 @@ processing.max_workers: 2
 - [ ] 主动学习反馈循环
 - [ ] 跨作品风格迁移
 - [ ] 插件生态系统
+- [ ] 分布式处理（Redis + Celery）
+- [ ] Docker 容器化部署
+- [ ] Web 前端界面（React/Vue + FastAPI）
+- [ ] GraphQL 数据服务层
 
 ---
 

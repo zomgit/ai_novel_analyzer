@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from ai-novel-analyzer!")
+"""AI Novel Analyzer - Core library for novel chapter analysis"""

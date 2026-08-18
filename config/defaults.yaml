@@ -1,23 +1,17 @@
 # AI Novel Analyzer - 默认配置文件
 # 此文件包含所有必需的配置项，用户可以在 production.yaml 中覆盖
 
-# ========== I/O 路径配置 ==========
-io:
-  # 输入目录：存放原始小说文本文件
-  input_dir: "user_data/novel_raw"
-  
-  # 输出目录：存放切分 +AI 分析的结果
-  output_dir: "user_data/novel_data"
-  
-  # 子目录结构（自动创建）
-  # - raw/          : 原始分割的小说章节
-  # - processed/    : AI 分析后的 JSON 文件
-  # - summaries/    : 章节摘要（上下文使用）
+# ========== Workspace 配置 ==========
+workspace:
+  # 工作区根目录：所有项目/书籍/数据的存放根
+  root: "workspace"
+  # 项目集合目录（缺省由 root/projects 推导）
+  projects_dir: "workspace/projects"
 
 # ========== 数据库配置 ==========
 db:
   # 数据库存放目录
-  path: "user_data/database"
+  path: "workspace/db"
   
   # SQLite 数据库文件
   sqlite_db: "novel_analyzer.db"
@@ -28,7 +22,7 @@ db:
 # ========== 处理配置 ==========
 processing:
   # Chapter processing
-  max_workers: 4                    # Parallel processing threads
+  max_workers: 1                    # Parallel processing threads
   retry_on_failure: true            # Auto-retry on errors
   continue_on_error: true           # Continue batch if chapter fails
   
@@ -59,7 +53,8 @@ ai_api:
   model: "deepseek-v4"
   
   # Token 控制
-  max_tokens: 8192            # AI 生成的最大 Token 数
+  max_tokens: 32768           # AI 生成的最大 Token 数（章节分析等主任务）
+  aux_max_tokens: 4096        # 辅助任务最大 Token 数（卷总结、摘要压缩等）
   temperature: 0.7            # 生成温度（0-2 之间）
   
   # 流式调用参数
@@ -73,31 +68,43 @@ logging:
   # 日志目录
   log_dir: "logs"
   
+  # API 原始请求/响应落盘（调试用）
+  # 开启后，每次 LLM 调用的完整 prompt 和 raw output 会写入 logs/debug/ 目录
+  # 文件命名：chap_XXXX_request.txt / chap_XXXX_response.txt
+  debug_api_dump: false
+  
   # 日志轮转配置
   max_bytes: 10485760         # 10MB
   backup_count: 5             # 保留 5 个备份文件
   
   # 格式配置
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # 文件/控制台输出（批处理日志）
+  file:
+    enabled: true
+    path: "./logs/batch_processing.log"
+    max_size_mb: 10
+    backup_count: 5
+  
+  console:
+    enabled: true
 
-# ========== 维度配置（声明式设计） ==========
-dimensions:
-  # 维度配置文件路径（支持多套预设）
-  config_path: "config/dimensions/xianxia.yaml"
-  
-  # 可选预设：xianxia.yaml | urban.yaml | scifi.yaml | fantasy.yaml
-  
-  # Prompt 自动生成（基于维度配置）
-  auto_generate_prompt: true
-  
-  # 批量处理性能调优
-  batch_size: 10              # 每次 API 调用的章节数
-  parallel_workers: 4         # 并行 worker 数量（CPU 核心数自适应）
+# ========== 章节分割配置 ==========
+chapter_splitting:
+  # 章节标题正则列表（按顺序匹配，命中即认为该行是章节标题）
+  # 每条正则必须包含两个捕获组: group(1)=章节编号, group(2)=标题后缀
+  # 默认仅含中文模式，英文小说可自行添加
+  title_patterns:
+    - '^\s*第\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*[章节回部集篇]\s*[::\s]?\s*(.{0,60})\s*$'
+    - '^\s*[章节回]\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*[::\s]?\s*(.{0,60})\s*$'
+    - '^\s*(\d{1,4})\s*[.、．,，]\s*(.{1,60})\s*$'
+    - '^\s*(序章|楔子|引子|终章|尾声|番外|后记|前言)\s+[::\s]?\s*(.{1,60})\s*$'
 
 # ========== ChromaDB 向量存储配置 ==========
 vector_store:
   # 存储路径（相对于项目根目录）
-  path: "user_data/database/chromadb"
+  path: "workspace/db/chromadb"
   
   # 集合名称
   collection_name: "novel_chunks"
@@ -110,20 +117,6 @@ vector_store:
   embed_batch_size: 10
   rate_limit: 100             # 每分钟请求数限制
   
-# Logging configuration
-logging:
-  level: "INFO"                     # DEBUG, INFO, WARNING, ERROR
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  
-  file:
-    enabled: true
-    path: "./logs/batch_processing.log"
-    max_size_mb: 10
-    backup_count: 5
-  
-  console:
-    enabled: true
-    
 # ========== 进度追踪 ==========
 progress:
   show_progress_bar: true           # Visual progress indicator

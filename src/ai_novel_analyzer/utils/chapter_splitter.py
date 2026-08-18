@@ -7,7 +7,7 @@
 2. 中文数字 + 阿拉伯数字 混合支持
 3. 兜底策略: 无章节标题时按段落长度均匀切分
 
-用法参见 scripts/split_novel.py
+用法参见 scripts/split_book.py
 """
 
 import re
@@ -26,6 +26,9 @@ class Chapter:
     is_fallback: bool = False  # 是否为兜底切分（非标题识别）
     volume_number: int = 1     # 所属卷号
     volume_title: Optional[str] = None  # 所属卷名（如有）
+    # 血缘信息（由拆书入口写入，透传到卷/章节元数据）
+    project_name: Optional[str] = None
+    book_name: Optional[str] = None
 
     def __post_init__(self):
         if self.char_count == 0:
@@ -80,32 +83,25 @@ VOLUME_PATTERN = re.compile(
     r'\s*[::\s]?\s*(.{0,60})\s*$'
 )
 
-# 章节标题正则模式（按优先级排列）
-# 要求标题行相对独立（行首附近出现），避免误伤正文中的引用
-TITLE_PATTERNS = [
-    # 第X章/节/回/部/集/篇，X 为阿拉伯数字或中文数字（卷由 VOLUME_PATTERN 单独处理）
-    re.compile(
-        r'^\s*第\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*'
-        r'[章节回部集篇]\s*[::\s]?\s*(.{0,60})\s*$'
-    ),
-    # 章节X / 节X（前缀式）
-    re.compile(
-        r'^\s*[章节回]\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)'
-        r'\s*[::\s]?\s*(.{0,60})\s*$'
-    ),
-    # Chapter 1 / CHAPTER 1: Title
-    re.compile(
-        r'^\s*[Cc]hapter\s+(\d+)\s*[::\-]?\s*(.{0,60})\s*$'
-    ),
-    # 纯数字编号行: "001. 标题" / "1、标题" / "01 标题"（行较短时才视为标题）
-    re.compile(
-        r'^\s*(\d{1,4})\s*[.、．,，:：]\s*(.{1,60})\s*$'
-    ),
-    # 特殊独立标题行: 序章/楔子/终章/尾声/番外 等（要求带标题后缀，避免误伤正文）
-    re.compile(
-        r'^\s*(序章|楔子|引子|终章|尾声|番外|后记|前言)\s+[::\s]?\s*(.{1,60})\s*$'
-    ),
+# 默认章节标题正则列表（中文模式，不含英文 Chapter）
+# 每条正则必须包含两个捕获组: group(1)=章节编号, group(2)=标题后缀
+# 注意: 纯数字编号分隔符不含冒号，避免 "14:00" 等时间表达式被误识别
+_DEFAULT_TITLE_PATTERNS: List[str] = [
+    r'^\s*第\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*[章节回部集篇]\s*[::\s]?\s*(.{0,60})\s*$',
+    r'^\s*[章节回]\s*([0-9０-９]+|[零一二两三四五六七八九十百千万亿]+)\s*[::\s]?\s*(.{0,60})\s*$',
+    r'^\s*(\d{1,4})\s*[.、．,，]\s*(.{1,60})\s*$',
+    r'^\s*(序章|楔子|引子|终章|尾声|番外|后记|前言)\s+[::\s]?\s*(.{1,60})\s*$',
 ]
+
+
+def compile_title_patterns(patterns: List[str] = None) -> list:
+    """将正则字符串列表编译为正则对象列表
+
+    Args:
+        patterns: 正则字符串列表，为 None 时使用默认中文模式
+    """
+    src = patterns if patterns is not None else _DEFAULT_TITLE_PATTERNS
+    return [re.compile(p) for p in src]
 
 # 单行最长字符数限制：超过此长度的行不太可能是章节标题
 MAX_TITLE_LINE_LENGTH = 80
@@ -119,6 +115,7 @@ class ChapterSplitter:
         min_chapters: int = 2,
         fallback_segment_chars: int = 3000,
         default_volume: int = 1,
+        title_patterns: List[str] = None,
     ):
         """
         Args:
@@ -126,10 +123,12 @@ class ChapterSplitter:
                           否则回退到兜底切分
             fallback_segment_chars: 兜底切分时每个分段的目标字符数
             default_volume: 未识别到分卷标题时使用的卷号
+            title_patterns: 章节标题正则字符串列表，为 None 时使用默认中文模式
         """
         self.min_chapters = min_chapters
         self.fallback_segment_chars = fallback_segment_chars
         self.default_volume = default_volume
+        self.title_patterns = compile_title_patterns(title_patterns)
 
     # ---------- 公开接口 ----------
 
@@ -207,7 +206,7 @@ class ChapterSplitter:
                 current_volume_title = (vm.group(2) or '').strip() or None
                 continue
 
-            for pattern in TITLE_PATTERNS:
+            for pattern in self.title_patterns:
                 m = pattern.match(line)
                 if m:
                     number_str, suffix = m.group(1), (m.group(2) or '').strip()
@@ -329,11 +328,13 @@ def split_novel_file(
     min_chapters: int = 2,
     fallback_segment_chars: int = 3000,
     default_volume: int = 1,
+    title_patterns: List[str] = None,
 ) -> List[Chapter]:
     """便捷函数: 分割整卷小说文件"""
     splitter = ChapterSplitter(
         min_chapters=min_chapters,
         fallback_segment_chars=fallback_segment_chars,
         default_volume=default_volume,
+        title_patterns=title_patterns,
     )
     return splitter.split_file(Path(input_path), encoding)

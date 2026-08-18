@@ -5,6 +5,7 @@
 
 ## Input 参数
 - `{context_summary}`: 前 N 章的精炼总结（可选）
+- `{prev_volumes_summary}`: 前几卷的完整总结（可选）
 - `{text_content}`: 当前处理的原文内容
 
 ## Output Format
@@ -31,9 +32,9 @@
 8. **章节总结** - 本章核心内容简要总结（用于后续阅读/回顾）
 
 ### ⚠️ 重要说明
-- **【前情提要】**（`<summary>` 标签内）仅供参考，用于帮助理解上下文背景
+- **【前情提要】**（`<summary>` 标签内）和**【前几卷总结】**（`<volumes_summary>` 标签内）均仅供参考，用于帮助理解上下文背景
 - **分析必须完全基于【本章正文】**（`<chapter_text>` 标签内的内容）
-- **不得依赖或推断** `</summary>` 和 `<chapter_text>` 之间的关联
+- **不得依赖或推断** `<volumes_summary>`, `</summary>` 和 `<chapter_text>` 之间的关联
 - **所有输出字段的数据来源应限于** `<chapter_text>` 中明确提及的信息
 
 ## Input Format

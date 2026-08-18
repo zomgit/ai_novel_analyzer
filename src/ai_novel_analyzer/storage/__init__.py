@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
 import json
 import logging
 import chromadb
@@ -11,20 +12,20 @@ logger = logging.getLogger(__name__)
 
 
 class JsonFileStore:
-    """Simple JSON file-based storage for processed chapters"""
+    """Simple JSON file-based storage for processed chapters
+    
+    新存储结构：JSON 文件直接写入卷目录（base_dir），
+    与同名章节源文件 chap_XXXX.txt 配对，配对即已处理。
+    """
     
     def __init__(self, base_dir: Path):
         """Initialize JSON store
         
         Args:
-            base_dir: Base directory to store JSON files
+            base_dir: Base directory to store JSON files（通常为卷目录）
         """
         self.base_dir = base_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create subdirectories
-        (self.base_dir / "processed").mkdir(exist_ok=True)
-        (self.base_dir / "index").mkdir(exist_ok=True)
         
         logger.info(f"JSON Store initialized at {base_dir}")
     
@@ -36,13 +37,13 @@ class JsonFileStore:
         """Save a single chapter's analysis result as JSON file
         
         Args:
-            chapter_id: Chapter identifier (e.g., vol_1_chap_01)
+            chapter_id: Chapter identifier (e.g., chap_0001)
             data: Chapter analysis data
             
         Returns:
             Path to saved JSON file
         """
-        filepath = self.base_dir / "processed" / f"{chapter_id}.json"
+        filepath = self.base_dir / f"{chapter_id}.json"
         
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -59,7 +60,7 @@ class JsonFileStore:
         Returns:
             Chapter data or None if not found
         """
-        filepath = self.base_dir / "processed" / f"{chapter_id}.json"
+        filepath = self.base_dir / f"{chapter_id}.json"
         
         if not filepath.exists():
             return None
@@ -77,7 +78,7 @@ class JsonFileStore:
         Returns:
             Path to saved index file
         """
-        filepath = self.base_dir / "index" / f"{index_name}_index.json"
+        filepath = self.base_dir / f"{index_name}_index.json"
         
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -93,7 +94,7 @@ class JsonFileStore:
         Returns:
             Index data or None if not found
         """
-        filepath = self.base_dir / "index" / f"{index_name}_index.json"
+        filepath = self.base_dir / f"{index_name}_index.json"
         
         if not filepath.exists():
             return None
@@ -134,13 +135,23 @@ class VectorStoreManager:
             settings=Settings(anonymized_telemetry=False)
         )
         
-        # Create collection
-        self.collection = self.client.create_collection(
-            name="novel_analysis",
-            metadata={"description": "Novel analysis vector storage"}
-        )
-        
-        logger.info(f"Vector Store initialized at {db_path}")
+        # Try to get or create collection (handle existing collection)
+        collection_name = "novel_analysis"
+        try:
+            self.collection = self.client.get_collection(name=collection_name)
+            logger.info(f"Vector store reloaded existing collection: {collection_name}")
+        except Exception:
+            # Collection doesn't exist, create it
+            try:
+                self.collection = self.client.create_collection(
+                    name=collection_name,
+                    metadata={"description": "Novel analysis vector storage"}
+                )
+                logger.info(f"Vector Store initialized at {db_path}")
+            except chromadb.errors.ExistsError:
+                # Double-check and fallback
+                self.collection = self.client.get_collection(name=collection_name)
+                logger.info(f"Vector store reloaded existing collection: {collection_name}")
     
     def add_chunk(
         self,
@@ -301,17 +312,35 @@ class StorageManager:
     def save_chapter_result(
         self, 
         chapter_id: str,
-        result_data: Dict[str, Any]
+        result_data: Dict[str, Any],
+        identity: Optional[Dict[str, Any]] = None
     ) -> None:
         """Save complete chapter processing result
         
         Args:
-            chapter_id: Chapter identifier
+            chapter_id: Chapter identifier (e.g., chap_0001)
             result_data: Complete processing result including structured data
+            identity: Optional chapter identity (血縁信息)，含
+                project_name / book_name / volume_number / volume_title /
+                chapter_number / chapter_title / source_file
         """
         
+        # 在分析结果前插入血缘块与处理状态
+        storage_data: Dict[str, Any] = {}
+        if identity:
+            storage_data['chapter_identity'] = {
+                k: identity[k] for k in (
+                    'project_name', 'book_name', 'volume_number', 'volume_title',
+                    'chapter_number', 'chapter_title'
+                ) if k in identity
+            }
+            storage_data['source_file'] = identity.get('source_file')
+        storage_data['processed_at'] = datetime.now(timezone.utc).isoformat()
+        storage_data['status'] = 'processed'
+        storage_data.update(result_data)
+        
         # Save to JSON files
-        self.json_store.save_chapter(chapter_id, result_data)
+        self.json_store.save_chapter(chapter_id, storage_data)
         
         # If vector store is available, also store key information
         if self.vector_store:
